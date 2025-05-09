@@ -76,12 +76,13 @@ pub async fn http_proxy_handler(
             "".to_string()
         } else {
             // "/db" または "/db/" を削除
-            let stripped_path = path
-                .strip_prefix("/db/")
-                .unwrap_or_else(|| path.strip_prefix("/db").unwrap_or(path))
-                .to_string();
+            let stripped_path = if path.starts_with("/db/") {
+                path.strip_prefix("/db/").unwrap_or(path)
+            } else {
+                path.strip_prefix("/db").unwrap_or(path)
+            };
             debug!("Stripped /db prefix, resulting path: '{}'", stripped_path);
-            stripped_path
+            stripped_path.to_string()
         }
     } else {
         debug!("Path does not start with /db, using as is: '{}'", path);
@@ -93,12 +94,20 @@ pub async fn http_proxy_handler(
     // ターゲットURIを構築
     let target_uri = match query {
         Some(q) => {
-            let uri = format!("{}{}", couchdb_url, db_path + "?" + q);
+            let uri = if db_path.is_empty() {
+                format!("{}?{}", couchdb_url, q)
+            } else {
+                format!("{}{}?{}", couchdb_url, db_path, q)
+            };
             debug!("Target URI with query: {}", uri);
             uri
         }
         None => {
-            let uri = format!("{}{}", couchdb_url, db_path);
+            let uri = if db_path.is_empty() {
+                couchdb_url.to_string()
+            } else {
+                format!("{}{}", couchdb_url, db_path)
+            };
             debug!("Target URI without query: {}", uri);
             uri
         }
@@ -150,7 +159,11 @@ pub async fn http_proxy_handler(
             let auth_string = format!("{}:{}", username, password);
             let auth_value = format!("Basic {}", base64_encode(&auth_string));
 
-            debug!("Auth value length: {}", auth_value.len());
+            debug!(
+                "Auth string: '{}', Auth value length: {}",
+                auth_string,
+                auth_value.len()
+            );
 
             if let Ok(auth_header) = header::HeaderValue::from_str(&auth_value) {
                 req.headers_mut().insert(header::AUTHORIZATION, auth_header);

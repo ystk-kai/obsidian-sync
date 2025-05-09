@@ -3,13 +3,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
+    body::Body,
     extract::State,
+    http::{Response, StatusCode},
     response::IntoResponse,
     routing::{any, get},
     Json, Router,
 };
 use serde_json::Value;
-use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use tracing::info;
 
 use super::handlers::http_proxy_handler;
@@ -48,19 +54,26 @@ pub async fn start_web_server(
     let health_router = create_health_router(health_state);
     let metrics_router = create_metrics_router(app_state.metrics_state.clone());
 
+    // 静的ファイルサービスを設定（ベースディレクトリを指定）
+    let static_service = ServeDir::new("/app/static");
+
     let app = Router::new()
-        // /db のすべてのパスを同じハンドラで処理
-        .route("/db", any(http_proxy_handler))
-        .route("/db/{*path}", any(http_proxy_handler))
+        // APIエンドポイント
         .route("/api/status", get(status_handler))
         .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
         // ヘルスチェックとメトリクスのルーターを追加
         .merge(health_router)
         .merge(metrics_router)
-        // 静的ファイルを提供するためのSPAルーター
-        .nest_service("/static", ServeDir::new("static"))
-        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
+        // /db のすべてのパスを同じハンドラで処理
+        .route("/db", any(http_proxy_handler))
+        .route("/db/*path", any(http_proxy_handler))
+        // 静的ファイルを提供する
+        .nest_service("/static", static_service.clone())
+        // ルートパスはindex.htmlを提供
+        .route_service("/", ServeFile::new("/app/static/index.html"))
+        // その他のパスは404を返す
+        .fallback(fallback_handler)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(app_state);
@@ -103,4 +116,13 @@ async fn debug_handler() -> impl IntoResponse {
         "status": "ok",
         "message": "Debug endpoint is working"
     }))
+}
+
+/// フォールバックハンドラー
+async fn fallback_handler() -> impl IntoResponse {
+    info!("404 Not Found");
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from("404 - Not Found"))
+        .unwrap()
 }

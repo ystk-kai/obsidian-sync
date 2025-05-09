@@ -29,9 +29,18 @@ impl CouchDbClient {
             .build()
             .expect("Failed to create HTTP client");
 
+        // ベースURLが/で終わるように調整
+        let base_url = if base_url.ends_with('/') {
+            base_url.to_string()
+        } else {
+            format!("{}/", base_url)
+        };
+
+        debug!("Creating CouchDB client with URL: {}", base_url);
+
         Self {
             client,
-            base_url: base_url.to_string(),
+            base_url,
             username: username.to_string(),
             password: password.to_string(),
         }
