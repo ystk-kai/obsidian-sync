@@ -53,8 +53,8 @@ pub async fn start_web_server(
 
     let app = Router::new()
         .route("/db", any(http_proxy_handler))
-        .route("/db/:path", any(http_proxy_handler))
-        .route("/db/:path/*rest", any(http_proxy_handler))
+        .route("/db/{path}", any(http_proxy_handler))
+        .route("/db/{*rest}", any(http_proxy_handler))
         .route("/api/status", get(status_handler))
         .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
@@ -70,9 +70,11 @@ pub async fn start_web_server(
 
     // サーバーの起動
     info!("Starting server on {}", addr);
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app)
-        .await
-        .map_err(Into::into)
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    info!("Server shutdown gracefully");
+    Ok(())
 }
 
 /// サーバーのステータス情報を返すハンドラー

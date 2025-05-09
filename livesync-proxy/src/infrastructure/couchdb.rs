@@ -1,8 +1,14 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use reqwest::{Client, StatusCode};
+use axum::body::Body as AxumBody;
+use axum::http::{HeaderMap, Response as AxumResponse};
+use axum::response::Response;
+use bytes::Bytes;
+use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
+use std::str::FromStr;
 use tracing::{debug, error, info};
 
 use crate::domain::models::{CouchDbDocument, DomainError};
@@ -99,6 +105,75 @@ impl CouchDbClient {
                 Err(anyhow!("Failed to create database with status: {}", status))
             }
         }
+    }
+
+    /// HTTPリクエストをCouchDBに転送する
+    pub async fn forward_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<Response<AxumBody>> {
+        // URLを構築
+        let mut url = format!("{}{}", self.base_url, path);
+        if let Some(q) = query {
+            url.push('?');
+            url.push_str(q);
+        }
+
+        debug!("Forwarding request to CouchDB: {} {}", method, url);
+
+        // HTTPメソッドを解析
+        let method = Method::from_str(method).unwrap_or(Method::GET);
+
+        // reqwestのリクエストビルダーを構築
+        let mut req_builder = self.client.request(method, &url);
+
+        // 認証情報を追加
+        req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
+
+        // ヘッダーを追加（Hostヘッダーは除外し、認証関連ヘッダーも上書き）
+        for (key, value) in headers.iter() {
+            if key.as_str().to_lowercase() != "host"
+                && key.as_str().to_lowercase() != "authorization"
+            {
+                req_builder = req_builder.header(key.as_str(), value);
+            }
+        }
+
+        // リクエストボディを追加（空でなければ）
+        if !body.is_empty() {
+            req_builder = req_builder.body(body);
+        }
+
+        // リクエストを送信
+        let response = req_builder.send().await?;
+
+        // レスポンスステータスとヘッダーを取得
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body_bytes = response.bytes().await?;
+
+        // Axumのレスポンスを構築
+        let mut axum_response_builder = AxumResponse::builder().status(status);
+
+        // ヘッダーを転送（ただし一部の特別なヘッダーは除外）
+        for (key, value) in headers.iter() {
+            if let Ok(name) = HeaderName::from_str(key.as_str()) {
+                if let Ok(val) = HeaderValue::from_bytes(value.as_bytes()) {
+                    axum_response_builder = axum_response_builder.header(name, val);
+                }
+            }
+        }
+
+        // レスポンスを構築して返す
+        let axum_response = axum_response_builder
+            .body(AxumBody::from(body_bytes))
+            .map_err(|e| anyhow!("Failed to build response: {}", e))?;
+
+        Ok(axum_response)
     }
 }
 
