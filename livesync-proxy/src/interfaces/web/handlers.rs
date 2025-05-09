@@ -68,21 +68,40 @@ pub async fn http_proxy_handler(
     }
 
     // CouchDBのURLを構築
-    let db_path = if let Some(stripped) = path.strip_prefix("/db") {
+    let db_path = if path.starts_with("/db") {
         // /db プレフィックスを除去
-        if stripped.is_empty() {
-            // ルートパスの場合は空文字列に
+        if path == "/db" || path == "/db/" {
+            // ルートパスの場合
+            debug!("Root path detected, mapping to CouchDB root");
             "".to_string()
         } else {
-            stripped.to_string() // "/db" を削除済み
+            // "/db" または "/db/" を削除
+            let stripped_path = path
+                .strip_prefix("/db/")
+                .unwrap_or_else(|| path.strip_prefix("/db").unwrap_or(path))
+                .to_string();
+            debug!("Stripped /db prefix, resulting path: '{}'", stripped_path);
+            stripped_path
         }
     } else {
+        debug!("Path does not start with /db, using as is: '{}'", path);
         path.to_string()
     };
 
+    debug!("Mapped path from '{}' to '{}' for CouchDB", path, db_path);
+
+    // ターゲットURIを構築
     let target_uri = match query {
-        Some(q) => format!("{}{}", couchdb_url, db_path + "?" + q),
-        None => format!("{}{}", couchdb_url, db_path),
+        Some(q) => {
+            let uri = format!("{}{}", couchdb_url, db_path + "?" + q);
+            debug!("Target URI with query: {}", uri);
+            uri
+        }
+        None => {
+            let uri = format!("{}{}", couchdb_url, db_path);
+            debug!("Target URI without query: {}", uri);
+            uri
+        }
     };
 
     info!(

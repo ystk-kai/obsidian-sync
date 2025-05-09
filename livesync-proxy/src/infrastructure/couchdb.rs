@@ -42,20 +42,29 @@ impl CouchDbClient {
         let url = format!("{}/", self.base_url);
         debug!("Pinging CouchDB at {}", url);
 
-        // 認証が必要かどうかを確認
-        let mut req_builder = self.client.get(&url);
-
+        // 認証情報をデバッグ出力
         if !self.username.is_empty() && !self.password.is_empty() {
             debug!(
-                "Using credentials - Username: {}, Password: [REDACTED]",
-                self.username
+                "Using credentials - Username: {}, Password length: {}",
+                self.username,
+                self.password.len()
             );
-            req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
         } else {
             debug!(
                 "No credentials provided or empty credentials, connecting without authentication"
             );
         }
+
+        // 認証が必要かどうかを確認
+        let mut req_builder = self.client.get(&url);
+
+        if !self.username.is_empty() && !self.password.is_empty() {
+            debug!("Adding basic authentication to ping request");
+            req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
+        }
+
+        // リクエストのヘッダーを表示
+        debug!("Sending ping request to CouchDB");
 
         let response = req_builder.send().await?;
 

@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use livesync_proxy::application::services::LiveSyncService;
 use livesync_proxy::infrastructure::config::AppConfig;
 use livesync_proxy::infrastructure::couchdb::CouchDbClient;
 use livesync_proxy::interfaces::web::health::HealthState;
+use livesync_proxy::interfaces::web::server::start_web_server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,23 +28,15 @@ async fn main() -> Result<()> {
     let config = AppConfig::from_env();
     info!("Loaded configuration: {:#?}", config);
 
-    // 開発テスト用にCouchDBの設定を上書き
-    let couchdb_url =
-        std::env::var("COUCHDB_URL").unwrap_or_else(|_| "http://localhost:5984".to_string());
-    let couchdb_username = std::env::var("COUCHDB_USER").unwrap_or_else(|_| "admin".to_string());
-    let couchdb_password =
-        std::env::var("COUCHDB_PASSWORD").unwrap_or_else(|_| "password".to_string());
-
-    debug!("Using CouchDB at URL: {}", couchdb_url);
-    debug!(
-        "Using CouchDB credentials - Username: {}, Password: [REDACTED]",
-        couchdb_username
+    // CouchDBクライアントの作成
+    let couchdb_client = CouchDbClient::new(
+        &config.couchdb.url,
+        &config.couchdb.username,
+        &config.couchdb.password,
     );
 
-    let couchdb_client = CouchDbClient::new(&couchdb_url, &couchdb_username, &couchdb_password);
-
     // Test connection but continue even if it fails
-    info!("Testing connection to CouchDB at {}", couchdb_url);
+    info!("Testing connection to CouchDB at {}", config.couchdb.url);
     let couchdb_available = match couchdb_client.ping().await {
         Ok(_) => {
             info!("Successfully connected to CouchDB");
@@ -91,35 +85,12 @@ async fn main() -> Result<()> {
     health_state.start_background_health_check();
     debug!("Started background health check");
 
-    // 単純化したテスト用のHTTPサーバーを起動
-    let app = axum::Router::new()
-        .route(
-            "/",
-            axum::routing::get(|| async { "Welcome to Obsidian LiveSync Proxy!\n" }),
-        )
-        .route(
-            "/db",
-            axum::routing::get(|| async {
-                info!("Received request to /db");
-                "Hello, Obsidian LiveSync Proxy!\n"
-            }),
-        );
+    // サーバーアドレスの設定
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
+    info!("Starting server on {}", addr);
 
-    // ポート番号を環境変数から取得
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(3000);
-
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    info!("Starting test server on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    info!("Listener bound to {}", addr);
-    axum::serve(listener, app).await.unwrap();
-
-    // 通常のサーバーは一旦保留
-    // start_web_server(addr, livesync_service, health_state).await?;
+    // 実際のサーバーを起動
+    start_web_server(addr, livesync_service, health_state).await?;
 
     info!("Server shutdown gracefully");
     Ok(())

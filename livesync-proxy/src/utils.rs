@@ -5,11 +5,14 @@ use tracing::debug;
 pub fn base64_encode(input: &str) -> String {
     // デバッグ情報を出力
     debug!("Base64 encoding input string length: {}", input.len());
+    debug!("Base64 encoding input: '{}'", input);
 
     // STANDARDエンコーダを使用 (パディングあり)
     let encoded = general_purpose::STANDARD.encode(input.as_bytes());
 
     debug!("Base64 encoded result length: {}", encoded.len());
+    debug!("Base64 encoded result: '{}'", encoded);
+
     encoded
 }
 

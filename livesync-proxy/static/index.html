@@ -204,6 +204,47 @@
     </div>
     
     <div class="card">
+        <h2>利用可能なAPIエンドポイント</h2>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <tr style="background-color: var(--bg-color);">
+                <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">エンドポイント</th>
+                <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">説明</th>
+                <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">使用例</th>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/db</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">CouchDBへのプロキシエンドポイント。ObsidianのLiveSyncプラグインはこのエンドポイントを使用してデータを同期します。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">LiveSyncプラグインの「Remote Database URI」として設定</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/api/status</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">サーバーの現在の状態を提供するJSONエンドポイント。CouchDBの接続状態やサーバーバージョンなどの情報を含みます。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><a href="/api/status" target="_blank">ステータスを表示</a></td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/health</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">サーバーのヘルスチェック情報を提供するJSONエンドポイント。稼働時間やサービス状態の詳細を表示します。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><a href="/health" target="_blank">ヘルスチェックを表示</a></td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/metrics</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">サーバーのメトリクス情報を提供するJSONエンドポイント。リクエスト数や応答時間などの統計情報を表示します。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><a href="/metrics" target="_blank">メトリクスを表示</a></td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/debug</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">デバッグ情報を提供するエンドポイント。開発者向けの診断情報を表示します。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><a href="/debug" target="_blank">デバッグ情報を表示</a></td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><code>/api/setup</code></td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">セットアップ情報を提供するエンドポイント。サーバーの設定に関する情報を表示します。</td>
+                <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><a href="/api/setup" target="_blank">セットアップ情報を表示</a></td>
+            </tr>
+        </table>
+    </div>
+    
+    <div class="card">
         <h2>モニタリング</h2>
         <div class="tabs">
             <button class="tab-button active" data-tab="connections">接続数</button>
@@ -377,7 +418,6 @@
                     serverStatusEl.style.color = 'var(--danger-color)';
                 });
         }
-    </script>
     </script>
 </body>
 </html>

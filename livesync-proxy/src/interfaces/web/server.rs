@@ -37,13 +37,10 @@ impl AppState {
 
 /// Webサーバーを起動する関数
 pub async fn start_web_server(
-    addr: String,
+    addr: SocketAddr,
     service: Arc<LiveSyncService>,
     health_state: Arc<HealthState>,
 ) -> Result<()> {
-    // サーバーアドレスをパース
-    let addr: SocketAddr = addr.parse()?;
-
     // アプリケーション状態の作成
     let app_state = Arc::new(AppState::new(service, health_state.clone()));
 
@@ -52,9 +49,9 @@ pub async fn start_web_server(
     let metrics_router = create_metrics_router(app_state.metrics_state.clone());
 
     let app = Router::new()
+        // /db のすべてのパスを同じハンドラで処理
         .route("/db", any(http_proxy_handler))
-        .route("/db/{path}", any(http_proxy_handler))
-        .route("/db/{path}/{*rest}", any(http_proxy_handler))
+        .route("/db/{*path}", any(http_proxy_handler))
         .route("/api/status", get(status_handler))
         .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
@@ -71,9 +68,7 @@ pub async fn start_web_server(
     // サーバーの起動
     info!("Starting server on {}", addr);
 
-    // WSL環境で確実に接続できるよう0.0.0.0にバインド
-    let listener_addr = SocketAddr::from(([0, 0, 0, 0], addr.port()));
-    let listener = tokio::net::TcpListener::bind(listener_addr).await?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Server listening on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
 
