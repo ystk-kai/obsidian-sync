@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const path = require('path');
+const fetch = require('node-fetch');
 
 // 簡易メトリクス収集用
 const metrics = {
@@ -46,6 +47,51 @@ const PORT = process.env.PORT || 3000;
 const couchdbUrlObj = new URL(COUCHDB_URL);
 const couchdbBaseUrl = `${couchdbUrlObj.protocol}//${couchdbUrlObj.hostname}:${couchdbUrlObj.port}`;
 
+// CouchDBの接続状態を管理するオブジェクト
+const couchdbStatus = {
+  available: false,
+  lastChecked: Date.now(),
+  errorMessage: 'Not checked yet'
+};
+
+// CouchDBの接続状態を確認する関数
+const checkCouchDBConnection = async () => {
+  try {
+    const authHeader = 'Basic ' + Buffer.from(`${couchdbUrlObj.username}:${couchdbUrlObj.password}`).toString('base64');
+    const response = await fetch(`${couchdbBaseUrl}/`, {
+      headers: {
+        'Authorization': authHeader
+      }
+    });
+    
+    if (response.ok) {
+      couchdbStatus.available = true;
+      couchdbStatus.errorMessage = null;
+    } else {
+      couchdbStatus.available = false;
+      couchdbStatus.errorMessage = `HTTP Error: ${response.status} ${response.statusText}`;
+    }
+  } catch (error) {
+    couchdbStatus.available = false;
+    couchdbStatus.errorMessage = `接続エラー: ${error.message}`;
+    console.error('CouchDB接続確認エラー:', error);
+  }
+  
+  couchdbStatus.lastChecked = Date.now();
+  return couchdbStatus.available;
+};
+
+// 初期接続確認
+checkCouchDBConnection().then(isConnected => {
+  console.log(`CouchDB接続状態: ${isConnected ? '接続成功' : '接続失敗'}`);
+  if (!isConnected) {
+    console.log(`エラー: ${couchdbStatus.errorMessage}`);
+  }
+});
+
+// 定期的に接続を確認（60秒ごと）
+setInterval(checkCouchDBConnection, 60000);
+
 // Expressアプリケーションの作成
 const app = express();
 
@@ -89,17 +135,17 @@ app.get('/metrics', (req, res) => {
 app.get('/health', (req, res) => {
   const uptime_seconds = Math.floor((Date.now() - metrics.startTime) / 1000);
   res.json({
-    status: 'ok',
+    status: couchdbStatus.available ? 'ok' : 'degraded',
     uptime_seconds,
     version: '0.1.0',
     services: {
       couchdb: {
-        available: true, // 実際の状態確認ロジックを実装
+        available: couchdbStatus.available,
         last_checked: {
-          secs_since_epoch: Math.floor(Date.now() / 1000),
-          nanos_since_epoch: (Date.now() % 1000) * 1000000
+          secs_since_epoch: Math.floor(couchdbStatus.lastChecked / 1000),
+          nanos_since_epoch: (couchdbStatus.lastChecked % 1000) * 1000000
         },
-        error_message: null
+        error_message: couchdbStatus.errorMessage
       }
     }
   });
@@ -110,12 +156,12 @@ app.get('/api/status', (req, res) => {
   res.json({
     services: {
       couchdb: {
-        available: true, // 実際の状態確認ロジックを実装
-        error: null,
-        last_checked: Math.floor(Date.now() / 1000)
+        available: couchdbStatus.available,
+        error: couchdbStatus.errorMessage,
+        last_checked: Math.floor(couchdbStatus.lastChecked / 1000)
       }
     },
-    status: 'ok',
+    status: couchdbStatus.available ? 'ok' : 'degraded',
     version: '0.1.0'
   });
 });
