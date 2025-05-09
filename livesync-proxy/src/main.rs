@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     // Start web server
     let addr = format!("{}:{}", config.server.host, config.server.port);
     info!("Starting web server on {}", addr);
-    
+
     // Start web server with updated service
     start_web_server(addr, livesync_service).await?;
 

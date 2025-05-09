@@ -34,13 +34,13 @@ pub struct CouchDbDocument {
 pub enum DomainError {
     #[error("Invalid message format: {0}")]
     InvalidMessage(String),
-    
+
     #[error("Authentication error: {0}")]
     AuthError(String),
-    
+
     #[error("CouchDB error: {0}")]
     CouchDbError(String),
-    
+
     #[error("WebSocket error: {0}")]
     WebSocketError(String),
 }

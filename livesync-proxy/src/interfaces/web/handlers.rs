@@ -2,12 +2,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    extract::{ws::{Message, WebSocket}, WebSocketUpgrade, State},
+    extract::{
+        State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
     response::IntoResponse,
 };
 use futures_util::StreamExt;
+use tracing::{debug, error, info};
 use uuid::Uuid;
-use tracing::{info, error, debug};
 
 use crate::{
     domain::models::{LiveSyncMessage, MessageType},
@@ -21,18 +24,16 @@ pub async fn ws_handler(
 ) -> impl IntoResponse {
     // 処理開始時間を記録
     let start = Instant::now();
-    
+
     // Clone state to measure metrics before it moves into the closure
     let metrics_state = state.metrics_state.clone();
-    
+
     // 処理完了時に時間を計測するようにする
-    let response = ws.on_upgrade(move |socket| {
-        handle_socket(socket, state)
-    });
-    
+    let response = ws.on_upgrade(move |socket| handle_socket(socket, state));
+
     // メトリクスに記録
     metrics_state.record_request_duration("/db", "GET", start);
-    
+
     response
 }
 
@@ -47,7 +48,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     // WebSocket接続カウンターを更新
     let connection_count = 1; // TODO: 実際の接続数を取得
-    state.metrics_state.update_websocket_connections(connection_count);
+    state
+        .metrics_state
+        .update_websocket_connections(connection_count);
 
     // 接続メッセージを送信
     let connect_msg = LiveSyncMessage {
@@ -60,7 +63,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     };
 
     // サービスの接続ハンドラーを呼び出す
-    if let Err(err) = state.livesync_service.handle_message(&client_id, connect_msg).await {
+    if let Err(err) = state
+        .livesync_service
+        .handle_message(&client_id, connect_msg)
+        .await
+    {
         error!("Failed to handle connection message: {:?}", err);
     }
 
@@ -70,55 +77,77 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             Message::Text(text) => {
                 debug!("Received text message: {}", text);
                 let msg_start = Instant::now();
-                
+
                 match serde_json::from_str::<LiveSyncMessage>(&text) {
                     Ok(msg) => {
                         // メッセージタイプに応じてメトリクスを記録
                         match msg.message_type {
                             MessageType::Sync => {
-                                let db_name = msg.payload.get("database")
+                                let db_name = msg
+                                    .payload
+                                    .get("database")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("unknown")
                                     .to_string();
-                                    
-                                if let Err(err) = state.livesync_service.handle_message(&client_id, msg.clone()).await {
+
+                                if let Err(err) = state
+                                    .livesync_service
+                                    .handle_message(&client_id, msg.clone())
+                                    .await
+                                {
                                     error!("Failed to handle sync message: {:?}", err);
                                     state.metrics_state.record_document_sync(&db_name, false);
                                 } else {
                                     state.metrics_state.record_document_sync(&db_name, true);
                                 }
-                            },
+                            }
                             MessageType::Replicate => {
-                                let source = msg.payload.get("source")
+                                let source = msg
+                                    .payload
+                                    .get("source")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("unknown")
                                     .to_string();
-                                    
-                                let target = msg.payload.get("target")
+
+                                let target = msg
+                                    .payload
+                                    .get("target")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("unknown")
                                     .to_string();
-                                    
-                                if let Err(err) = state.livesync_service.handle_message(&client_id, msg.clone()).await {
+
+                                if let Err(err) = state
+                                    .livesync_service
+                                    .handle_message(&client_id, msg.clone())
+                                    .await
+                                {
                                     error!("Failed to handle replication message: {:?}", err);
-                                    state.metrics_state.record_replication(&source, &target, false);
+                                    state
+                                        .metrics_state
+                                        .record_replication(&source, &target, false);
                                 } else {
-                                    state.metrics_state.record_replication(&source, &target, true);
+                                    state
+                                        .metrics_state
+                                        .record_replication(&source, &target, true);
                                 }
-                            },
+                            }
                             _ => {
-                                if let Err(err) = state.livesync_service.handle_message(&client_id, msg.clone()).await {
+                                if let Err(err) = state
+                                    .livesync_service
+                                    .handle_message(&client_id, msg.clone())
+                                    .await
+                                {
                                     error!("Failed to handle message: {:?}", err);
                                 }
                             }
                         }
-                        
+
                         // メッセージ処理時間を記録
                         let msg_type = format!("{:?}", msg.message_type).to_lowercase();
                         state.metrics_state.record_request_duration(
-                            &format!("/db/{}", msg_type), 
-                            "WS", 
-                            msg_start
+                            &format!("/db/{}", msg_type),
+                            "WS",
+                            msg_start,
                         );
                     }
                     Err(err) => {
@@ -139,10 +168,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     }
 
     // WebSocket接続カウンターを更新
-    state.metrics_state.update_websocket_connections(connection_count - 1);
+    state
+        .metrics_state
+        .update_websocket_connections(connection_count - 1);
 
     // クライアントの切断を処理
-    if let Err(err) = state.livesync_service.handle_disconnection(&client_id).await {
+    if let Err(err) = state
+        .livesync_service
+        .handle_disconnection(&client_id)
+        .await
+    {
         error!("Failed to handle disconnection: {:?}", err);
     }
 }

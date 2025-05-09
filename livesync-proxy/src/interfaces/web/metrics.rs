@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    routing::get,
-    Router,
-};
+use axum::{Router, extract::State, routing::get};
 use metrics::{counter, gauge, histogram};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::sync::Arc;
@@ -55,7 +51,10 @@ impl MetricsState {
     // ドキュメント同期をカウント
     pub fn record_document_sync(&self, db_name: &str, success: bool) {
         let result = if success { "success" } else { "failure" };
-        let labels = [("database", db_name.to_string()), ("result", result.to_string())];
+        let labels = [
+            ("database", db_name.to_string()),
+            ("result", result.to_string()),
+        ];
         counter!("document_sync_total", &labels).increment(1);
     }
 
