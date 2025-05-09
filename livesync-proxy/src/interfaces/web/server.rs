@@ -13,6 +13,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
 use super::handlers::http_proxy_handler;
+use crate::interfaces::web::setup::setup_uri_handler;
 use crate::application::services::LiveSyncService;
 use crate::interfaces::web::health::{HealthState, create_health_router};
 use crate::interfaces::web::metrics::{MetricsState, create_metrics_router};
@@ -48,9 +49,10 @@ pub async fn start_web_server(addr: String, service: Arc<LiveSyncService>) -> Re
 
     let app = Router::new()
         .route("/db", any(http_proxy_handler))
-        .route("/db/{path}", any(http_proxy_handler)) // プロキシのHTTPエンドポイント。ObsidianのLiveSyncプラグインはHTTP/HTTPSで接続します。
-        .route("/db/{path}/{*rest}", any(http_proxy_handler)) // 深いパスも処理
+        .route("/db/:path", any(http_proxy_handler))
+        .route("/db/:path/*rest", any(http_proxy_handler))
         .route("/api/status", get(status_handler))
+        .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
         // ヘルスチェックとメトリクスのルーターを追加
         .merge(health_router)

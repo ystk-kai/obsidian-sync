@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 
 /// Base64エンコードを行う関数
 pub fn base64_encode(input: &str) -> String {

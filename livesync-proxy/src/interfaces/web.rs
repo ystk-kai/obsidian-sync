@@ -6,3 +6,5 @@ pub mod server;
 pub mod health;
 // メトリクス機能
 pub mod metrics;
+// Setup URI生成機能
+pub mod setup;
