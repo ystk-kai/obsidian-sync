@@ -1,13 +1,19 @@
 use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
+use tracing::{debug, error, info};
+
+use crate::application::services::LiveSyncService;
+use crate::infrastructure::couchdb::CouchDbClient;
 
 // ヘルスチェックの状態
 pub struct HealthState {
     pub start_time: SystemTime,
     pub couchdb_status: RwLock<CouchDbStatus>,
+    livesync_service: Arc<LiveSyncService>,
+    check_interval: Duration,
 }
 
 // CouchDBの状態
@@ -33,14 +39,8 @@ pub struct ServiceStatus {
     pub couchdb: CouchDbStatus,
 }
 
-impl Default for HealthState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HealthState {
-    pub fn new() -> Self {
+    pub fn new(livesync_service: Arc<LiveSyncService>, check_interval: Duration) -> Self {
         Self {
             start_time: SystemTime::now(),
             couchdb_status: RwLock::new(CouchDbStatus {
@@ -48,6 +48,8 @@ impl HealthState {
                 last_checked: SystemTime::now(),
                 error_message: None,
             }),
+            livesync_service,
+            check_interval,
         }
     }
 
@@ -56,7 +58,55 @@ impl HealthState {
         let mut status = self.couchdb_status.write().await;
         status.available = available;
         status.last_checked = SystemTime::now();
+        let error_msg_copy = error_message.clone();
         status.error_message = error_message;
+
+        if available {
+            debug!("CouchDB connection is available");
+        } else {
+            error!("CouchDB connection is not available: {:?}", error_msg_copy);
+        }
+    }
+
+    // バックグラウンドでヘルスチェックを開始する
+    pub fn start_background_health_check(self: &Arc<Self>) {
+        let health_state = Arc::clone(self);
+
+        tokio::spawn(async move {
+            info!(
+                "Starting background health check with interval {:?}",
+                health_state.check_interval
+            );
+            let mut interval = tokio::time::interval(health_state.check_interval);
+
+            loop {
+                interval.tick().await;
+                debug!("Performing CouchDB health check");
+
+                let couchdb_url = health_state.livesync_service.get_couchdb_url();
+                let couchdb_auth = health_state.livesync_service.get_couchdb_auth();
+
+                if let Some((username, password)) = couchdb_auth {
+                    let couchdb_client = CouchDbClient::new(&couchdb_url, &username, &password);
+                    match couchdb_client.ping().await {
+                        Ok(_) => {
+                            health_state.update_couchdb_status(true, None).await;
+                        }
+                        Err(e) => {
+                            let error_msg = format!("CouchDB connection error: {}", e);
+                            health_state
+                                .update_couchdb_status(false, Some(error_msg))
+                                .await;
+                        }
+                    }
+                } else {
+                    let error_msg = "No CouchDB authentication credentials available".to_string();
+                    health_state
+                        .update_couchdb_status(false, Some(error_msg))
+                        .await;
+                }
+            }
+        });
     }
 }
 
