@@ -1,0 +1,29 @@
+FROM alpine:3.18
+
+# 必要なパッケージのインストール
+RUN apk add --no-cache \
+    bash \
+    curl \
+    docker-cli \
+    tzdata \
+    busybox-openrc
+
+# タイムゾーンを JST に設定
+ENV TZ=Asia/Tokyo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Docker Compose プラグインのインストール
+ARG DOCKER_COMPOSE_VERSION=v2.20.3
+RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
+    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# 作業ディレクトリの設定
+WORKDIR /app
+
+# スケジューラースクリプトのコピー
+COPY scheduler.sh /app/scheduler.sh
+RUN chmod +x /app/scheduler.sh
+
+# エントリーポイントの設定
+ENTRYPOINT ["/app/scheduler.sh"]

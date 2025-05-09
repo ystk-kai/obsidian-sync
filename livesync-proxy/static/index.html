@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obsidian LiveSync Proxy</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="js/metrics.js"></script>
+    <style>
+        :root {
+            --primary-color: #7e6df0;
+            --secondary-color: #5045a8;
+            --bg-color: #f8f9fa;
+            --text-color: #333;
+            --border-color: #e0e0e0;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --info-color: #17a2b8;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        h1 {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .status-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .status {
+            font-weight: bold;
+        }
+        
+        .connected {
+            color: var(--success-color);
+        }
+        
+        .disconnected {
+            color: var(--danger-color);
+        }
+        
+        .info {
+            color: var(--info-color);
+        }
+        
+        code {
+            background-color: #f1f1f1;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        
+        .footer {
+            margin-top: 3rem;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .link-button {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 0.5rem;
+        }
+        
+        .link-button:hover {
+            background-color: var(--secondary-color);
+        }
+        
+        /* Tab styling */
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .tab-button {
+            padding: 10px 15px;
+            background-color: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+            color: var(--text-color);
+            margin-right: 10px;
+        }
+        
+        .tab-button:hover {
+            color: var(--primary-color);
+        }
+        
+        .tab-button.active {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 15px 0;
+        }
+        
+        /* 統計サマリーボックス */
+        .stat-summary {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        
+        .stat-box {
+            text-align: center;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            width: 150px;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Obsidian LiveSync Proxy</h1>
+        <p>ObsidianのLiveSyncプラグイン用WebSocketプロキシサーバー</p>
+    </header>
+    
+    <div class="card">
+        <h2>サーバーステータス</h2>
+        <div class="status-container">
+            <div>
+                <p>WebSocketサーバー: <span id="ws-status" class="status disconnected">未接続</span></p>
+                <p>CouchDB接続: <span id="db-status" class="status disconnected">未確認</span></p>
+            </div>
+            <div>
+                <p>サーバーバージョン: <span id="version" class="status info">確認中...</span></p>
+                <p>稼働時間: <span id="uptime" class="status info">確認中...</span></p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>使用方法</h2>
+        <p>ObsidianのLiveSyncプラグインでWebSocketサーバーとして以下を設定してください：</p>
+        <p>WebSocket URL: <code>ws://<span id="server-host">サーバーアドレス</span>/db</code></p>
+    </div>
+    
+    <div class="card">
+        <h2>モニタリング</h2>
+        <div class="tabs">
+            <button class="tab-button active" data-tab="connections">接続数</button>
+            <button class="tab-button" data-tab="requests">リクエスト時間</button>
+            <button class="tab-button" data-tab="requestTypes">リクエスト分布</button>
+            <button class="tab-button" data-tab="system">システム</button>
+        </div>
+        
+        <div class="tab-content active" id="connections-tab">
+            <div class="stat-summary">
+                <div class="stat-box">
+                    <div class="stat-value" id="current-connections">0</div>
+                    <div class="stat-label">現在の接続数</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="max-connections">0</div>
+                    <div class="stat-label">最大接続数</div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="connectionsChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="requests-tab">
+            <div class="stat-summary">
+                <div class="stat-box">
+                    <div class="stat-value" id="avg-request-time">0 ms</div>
+                    <div class="stat-label">平均応答時間</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="max-request-time">0 ms</div>
+                    <div class="stat-label">最大応答時間</div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="requestsChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="requestTypes-tab">
+            <div class="chart-container">
+                <canvas id="requestTypesChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="system-tab">
+            <div class="stat-summary">
+                <div class="stat-box">
+                    <div class="stat-value" id="uptime-value">0 分</div>
+                    <div class="stat-label">稼働時間</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="server-status">確認中...</div>
+                    <div class="stat-label">サーバー状態</div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="systemChart"></canvas>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="/health" class="link-button">ヘルスチェック</a>
+            <a href="/metrics" class="link-button">メトリクス</a>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Obsidian LiveSync Proxy</p>
+    </div>
+
+    <script>
+        // ページロード時に実行
+        document.addEventListener('DOMContentLoaded', function() {
+            // サーバーホスト名の表示
+            document.getElementById('server-host').textContent = window.location.host;
+            
+            // WebSocket接続のテスト
+            testWebSocketConnection();
+            
+            // サーバーステータスの取得
+            getServerStatus();
+            
+            // モニタリングの初期化
+            initMonitoring();
+            
+            // 定期的な更新
+            setInterval(getServerStatus, 10000);
+        });
+
+        // WebSocket接続テスト
+        function testWebSocketConnection() {
+            const wsStatusEl = document.getElementById('ws-status');
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//${window.location.host}/db`);
+            
+            ws.onopen = function() {
+                wsStatusEl.textContent = '接続済み';
+                wsStatusEl.classList.remove('disconnected');
+                wsStatusEl.classList.add('connected');
+                setTimeout(() => ws.close(), 1000); // 1秒後に接続を閉じる
+            };
+            
+            ws.onerror = function() {
+                wsStatusEl.textContent = '接続エラー';
+                wsStatusEl.classList.remove('connected');
+                wsStatusEl.classList.add('disconnected');
+            };
+        }
+        
+        // サーバーステータスの取得
+        function getServerStatus() {
+            const dbStatusEl = document.getElementById('db-status');
+            const versionEl = document.getElementById('version');
+            const uptimeEl = document.getElementById('uptime');
+            const serverStatusEl = document.getElementById('server-status');
+            
+            fetch('/api/status')
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error(`Status error: ${response.status}`);
+                })
+                .then(data => {
+                    // CouchDB接続状態
+                    if (data.services && data.services.couchdb) {
+                        if (data.services.couchdb.available) {
+                            dbStatusEl.textContent = '接続済み';
+                            dbStatusEl.classList.remove('disconnected');
+                            dbStatusEl.classList.add('connected');
+                            
+                            // サーバーステータスを更新
+                            serverStatusEl.textContent = '正常';
+                            serverStatusEl.style.color = 'var(--success-color)';
+                        } else {
+                            dbStatusEl.textContent = '接続エラー';
+                            if (data.services.couchdb.error) {
+                                dbStatusEl.title = data.services.couchdb.error;
+                            }
+                            dbStatusEl.classList.remove('connected');
+                            dbStatusEl.classList.add('disconnected');
+                            
+                            // サーバーステータスを更新
+                            serverStatusEl.textContent = '劣化';
+                            serverStatusEl.style.color = 'var(--danger-color)';
+                        }
+                    }
+                    
+                    // バージョン情報
+                    if (data.version) {
+                        versionEl.textContent = data.version;
+                    }
+                    
+                    // 稼働時間
+                    fetch('/health')
+                        .then(response => response.json())
+                        .then(health => {
+                            if (health.uptime_seconds) {
+                                const days = Math.floor(health.uptime_seconds / 86400);
+                                const hours = Math.floor((health.uptime_seconds % 86400) / 3600);
+                                const minutes = Math.floor((health.uptime_seconds % 3600) / 60);
+                                const seconds = health.uptime_seconds % 60;
+                                
+                                let uptime = '';
+                                if (days > 0) uptime += `${days}日 `;
+                                if (hours > 0 || days > 0) uptime += `${hours}時間 `;
+                                if (minutes > 0 || hours > 0 || days > 0) uptime += `${minutes}分 `;
+                                uptime += `${seconds}秒`;
+                                
+                                uptimeEl.textContent = uptime;
+                                
+                                // 稼働時間の値を更新（分単位）
+                                const uptimeMinutes = Math.floor(health.uptime_seconds / 60);
+                                document.getElementById('uptime-value').textContent = 
+                                    uptimeMinutes > 0 ? `${uptimeMinutes} 分` : `${health.uptime_seconds} 秒`;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Health check error:', error);
+                            uptimeEl.textContent = '取得エラー';
+                        });
+                })
+                .catch(error => {
+                    console.error('Status error:', error);
+                    dbStatusEl.textContent = '取得エラー';
+                    dbStatusEl.classList.remove('connected');
+                    dbStatusEl.classList.add('disconnected');
+                    versionEl.textContent = '取得エラー';
+                    
+                    // サーバーステータスを更新
+                    serverStatusEl.textContent = 'エラー';
+                    serverStatusEl.style.color = 'var(--danger-color)';
+                });
+        }
+    </script>
+    </script>
+</body>
+</html>

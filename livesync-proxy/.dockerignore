@@ -1,0 +1,31 @@
+# ビルド成果物
+/target
+
+# エディタの設定ファイル
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 開発環境の設定ファイル
+.env
+.env.local
+.env.*
+
+# デバッグ用ファイル
+*.log
+
+# Git関連
+.git/
+.gitignore
+
+# テスト関連
+/tests
+
+# ドキュメント
+/docs
+
+# その他不要なファイル
+*.md
+!README.md

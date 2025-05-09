@@ -1,0 +1,66 @@
+services:
+  couchdb:
+    build:
+      context: ./couchdb
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+    ports:
+      - "${HOST_COUCHDB_PORT}:5984"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  livesync-proxy:
+    build:
+      context: ./livesync-proxy
+      dockerfile: Dockerfile
+    depends_on:
+      - couchdb
+    environment:
+      COUCHDB_URL: http://${COUCHDB_USER}:${COUCHDB_PASSWORD}@couchdb:5984
+    ports:
+      - "${HOST_PROXY_PORT}:3000"
+    volumes:
+      - ./livesync-proxy/static:/app/static
+    restart: on-failure
+    
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    volumes:
+      - couchdb_data:/data:ro
+      - backup_data:/backup
+    environment:
+      BACKUP_GIT_REPO: ${BACKUP_GIT_REPO}
+      BACKUP_GIT_BRANCH: ${BACKUP_GIT_BRANCH:-main}
+      BACKUP_GIT_TOKEN: ${BACKUP_GIT_TOKEN}
+      BACKUP_COMMIT_MSG_PREFIX: ${BACKUP_COMMIT_MSG_PREFIX:-"[Backup]"}
+    profiles:
+      - manual
+      
+  backup-scheduler:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile.scheduler
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}/compose.yaml:/compose.yaml:ro
+      - ${PWD}/compose.prod.yaml:/compose.prod.yaml:ro
+      - ${PWD}/.env:/.env:ro
+    environment:
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-"0 2 * * *"}
+      RUN_ON_STARTUP: ${BACKUP_RUN_ON_STARTUP:-"false"}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-obsidian-sync}
+    restart: unless-stopped
+
+volumes:
+  couchdb_data:
+  backup_data:
