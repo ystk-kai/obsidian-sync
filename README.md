@@ -1,12 +1,12 @@
 # obsidian-sync
 
 Obsidian のナレッジベースを複数デバイス間でリアルタイム同期するための完全なソリューションです。  
-Docker コンテナでパッケージされた CouchDB と専用 WebSocket プロキシを使用して、セキュアでシームレスな同期環境を提供します。
+Docker コンテナでパッケージされた CouchDB と専用 HTTP プロキシを使用して、セキュアでシームレスな同期環境を提供します。
 
 ## Overview
 
 Obsidian の LiveSync プラグインを使用して、複数のデバイス間でスムーズにノートを同期するための Docker ベースの環境です。  
-CouchDB と WebSocket プロキシを使用して、セキュアで高速な同期を実現します。
+CouchDB と HTTP プロキシを使用して、セキュアで高速な同期を実現します。
 
 ```mermaid
 flowchart TD
@@ -19,7 +19,7 @@ flowchart TD
 
     subgraph サーバー["サーバー層"]
         direction LR
-        B[LiveSync Proxy<br>WebSocket サーバー]
+        B[LiveSync Proxy<br>HTTP サーバー]
         D[(CouchDB<br>データベース)]
         B --REST API--> D
     end
@@ -34,8 +34,8 @@ flowchart TD
     G[(Git リポジトリ<br>外部ストレージ)]
 
     %% 接続関係
-    A --"WebSocket<br>リアルタイム同期"--> B
-    C --"WebSocket<br>リアルタイム同期"--> B
+    A --"HTTP<br>リアルタイム同期"--> B
+    C --"HTTP<br>リアルタイム同期"--> B
     F --"データ抽出"--> D
     F --"Git Push<br>バージョン管理"--> G
     
@@ -120,8 +120,8 @@ flowchart TD
 
 Obsidian アプリ内で LiveSync プラグインをインストールし、以下のように設定してください：
 
-1. リモートデータベースタイプ: WebSocket サーバー
-2. WebSocket URL: `ws://[サーバーの IP またはホスト名]:3000/db`
+1. リモートデータベースタイプ: HTTP サーバー
+2. HTTP URL: `http://[サーバーの IP またはホスト名]:3000/db`
 
 ## Backup
 

@@ -1,23 +1,4 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-/// Represents a WebSocket message in the Obsidian LiveSync protocol
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LiveSyncMessage {
-    pub id: Uuid,
-    pub message_type: MessageType,
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageType {
-    Connection,
-    Sync,
-    Replicate,
-    Error,
-    Heartbeat,
-}
 
 /// Represents a CouchDB document
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +22,6 @@ pub enum DomainError {
     #[error("CouchDB error: {0}")]
     CouchDbError(String),
 
-    #[error("WebSocket error: {0}")]
-    WebSocketError(String),
+    #[error("HTTP proxy error: {0}")]
+    HttpProxyError(String),
 }

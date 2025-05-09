@@ -172,14 +172,14 @@
 <body>
     <header>
         <h1>Obsidian LiveSync Proxy</h1>
-        <p>ObsidianのLiveSyncプラグイン用WebSocketプロキシサーバー</p>
+        <p>ObsidianのLiveSyncプラグイン用HTTPプロキシサーバー</p>
     </header>
     
     <div class="card">
         <h2>サーバーステータス</h2>
         <div class="status-container">
             <div>
-                <p>WebSocketサーバー: <span id="ws-status" class="status disconnected">未接続</span></p>
+                <p>HTTPプロキシ: <span id="proxy-status" class="status connected">利用可能</span></p>
                 <p>CouchDB接続: <span id="db-status" class="status disconnected">未確認</span></p>
             </div>
             <div>
@@ -191,8 +191,16 @@
     
     <div class="card">
         <h2>使用方法</h2>
-        <p>ObsidianのLiveSyncプラグインでWebSocketサーバーとして以下を設定してください：</p>
-        <p>WebSocket URL: <code>ws://<span id="server-host">サーバーアドレス</span>/db</code></p>
+        <p>ObsidianのLiveSyncプラグインで以下のURIを設定してください：</p>
+        <p>Remote Database URI: <code>http://<span id="server-host">サーバーアドレス</span>/db</code></p>
+        <div class="info-box">
+            <h3>重要な注意事項</h3>
+            <ul>
+                <li><strong>URI形式</strong>: 「http://」または「https://」を使用してください。</li>
+                <li><strong>接続テスト</strong>: このページでの接続ステータスは診断目的のみです。</li>
+                <li><strong>プラグイン設定</strong>: LiveSyncプラグインの設定でRemote Database URIに上記のURIを設定してください。</li>
+            </ul>
+        </div>
     </div>
     
     <div class="card">
@@ -274,9 +282,6 @@
             // サーバーホスト名の表示
             document.getElementById('server-host').textContent = window.location.host;
             
-            // WebSocket接続のテスト
-            testWebSocketConnection();
-            
             // サーバーステータスの取得
             getServerStatus();
             
@@ -286,26 +291,6 @@
             // 定期的な更新
             setInterval(getServerStatus, 10000);
         });
-
-        // WebSocket接続テスト
-        function testWebSocketConnection() {
-            const wsStatusEl = document.getElementById('ws-status');
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${protocol}//${window.location.host}/db`);
-            
-            ws.onopen = function() {
-                wsStatusEl.textContent = '接続済み';
-                wsStatusEl.classList.remove('disconnected');
-                wsStatusEl.classList.add('connected');
-                setTimeout(() => ws.close(), 1000); // 1秒後に接続を閉じる
-            };
-            
-            ws.onerror = function() {
-                wsStatusEl.textContent = '接続エラー';
-                wsStatusEl.classList.remove('connected');
-                wsStatusEl.classList.add('disconnected');
-            };
-        }
         
         // サーバーステータスの取得
         function getServerStatus() {

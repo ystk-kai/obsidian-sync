@@ -7,7 +7,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use livesync_proxy::application::services::LiveSyncService;
 use livesync_proxy::infrastructure::config::AppConfig;
 use livesync_proxy::infrastructure::couchdb::CouchDbClient;
-use livesync_proxy::infrastructure::websocket::WebSocketBroker;
 use livesync_proxy::interfaces::web::server::start_web_server;
 
 #[tokio::main]
@@ -34,18 +33,8 @@ async fn main() -> Result<()> {
     ));
     info!("CouchDB client initialized at {}", config.couchdb.url);
 
-    // Initialize WebSocket broker
-    let websocket_broker = Arc::new(WebSocketBroker::new(100));
-    info!("WebSocket broker initialized");
-
-    // Start the broker's background task
-    websocket_broker.clone().start();
-
-    // Initialize LiveSync service
-    let livesync_service = Arc::new(LiveSyncService::new(
-        couchdb_client.clone(),
-        websocket_broker.clone(),
-    ));
+    // Initialize LiveSync service with just the CouchDB client
+    let livesync_service = Arc::new(LiveSyncService::new(couchdb_client.clone()));
     info!("LiveSync service initialized");
 
     // CouchDBの健全性をチェック

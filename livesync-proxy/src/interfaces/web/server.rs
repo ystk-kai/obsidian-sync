@@ -2,12 +2,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::{Json, Router, extract::State, response::IntoResponse, routing::get};
+use axum::{
+    Json, Router,
+    extract::State,
+    response::IntoResponse,
+    routing::{any, get},
+};
 use serde_json::Value;
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
-use super::handlers::ws_handler;
+use super::handlers::http_proxy_handler;
 use crate::application::services::LiveSyncService;
 use crate::interfaces::web::health::{HealthState, create_health_router};
 use crate::interfaces::web::metrics::{MetricsState, create_metrics_router};
@@ -42,7 +47,9 @@ pub async fn start_web_server(addr: String, service: Arc<LiveSyncService>) -> Re
     let metrics_router = create_metrics_router(app_state.metrics_state.clone());
 
     let app = Router::new()
-        .route("/db", get(ws_handler))
+        .route("/db", any(http_proxy_handler))
+        .route("/db/{path}", any(http_proxy_handler)) // プロキシのHTTPエンドポイント。ObsidianのLiveSyncプラグインはHTTP/HTTPSで接続します。
+        .route("/db/{path}/{*rest}", any(http_proxy_handler)) // 深いパスも処理
         .route("/api/status", get(status_handler))
         .route("/debug", get(debug_handler))
         // ヘルスチェックとメトリクスのルーターを追加

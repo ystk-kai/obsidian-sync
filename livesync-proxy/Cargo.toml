@@ -2,19 +2,23 @@
 name = "livesync-proxy"
 version = "0.1.0"
 edition = "2024"
-description = "WebSocket proxy for Obsidian LiveSync"
+description = "HTTP proxy for Obsidian LiveSync"
 
 [dependencies]
 # Async runtime
 tokio = { version = "1.37.0", features = ["full"] }
 
-# Web framework and WebSockets
-axum = { version = "0.8.4", features = ["ws"] }
+# Web framework
+axum = { version = "0.8.4" }
 tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace", "cors"] }
 
 # HTTP client for CouchDB
 reqwest = { version = "0.12.15", features = ["json"] }
+hyper = { version = "0.14", features = ["full"] }
+hyper-tls = "0.5.0"
+bytes = "1.6.0"
+http-body-util = "0.1"
 
 # Serialization/Deserialization
 serde = { version = "1.0.219", features = ["derive"] }

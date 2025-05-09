@@ -68,7 +68,7 @@ function initCharts() {
         data: {
             labels: timeLabels,
             datasets: [{
-                label: 'WebSocket接続数',
+                label: 'HTTP接続数',
                 data: connectionsData,
                 borderColor: '#7e6df0',
                 backgroundColor: 'rgba(126, 109, 240, 0.1)',
@@ -166,10 +166,10 @@ function fetchMetrics() {
     fetch('/metrics')
         .then(response => response.text())
         .then(text => {
-            // 接続数を抽出
-            const wsConnectionsMatch = text.match(/websocket_connections_count.*?(\d+)/);
-            if (wsConnectionsMatch) {
-                const connectionCount = parseInt(wsConnectionsMatch[1]);
+            // HTTP接続数を抽出
+            const httpConnectionsMatch = text.match(/http_connections_count.*?(\d+)/);
+            if (httpConnectionsMatch) {
+                const connectionCount = parseInt(httpConnectionsMatch[1]);
                 updateConnectionsChart(connectionCount);
                 
                 // 接続数の表示も直接更新

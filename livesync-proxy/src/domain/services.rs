@@ -47,20 +47,10 @@ pub trait CouchDbRepository {
         target: &str,
         options: Value,
     ) -> Result<Value, DomainError>;
-}
 
-/// Message broker interface for WebSocket operations
-#[async_trait]
-pub trait MessageBroker {
-    /// Send a message to a specific client
-    async fn send_message(&self, client_id: &str, message: Value) -> Result<(), DomainError>;
+    /// Get the base URL of the CouchDB server
+    fn get_base_url(&self) -> String;
 
-    /// Broadcast a message to all connected clients
-    async fn broadcast_message(&self, message: Value) -> Result<(), DomainError>;
-
-    /// Register a new client connection
-    async fn register_client(&self, client_id: &str) -> Result<(), DomainError>;
-
-    /// Unregister a client connection
-    async fn unregister_client(&self, client_id: &str) -> Result<(), DomainError>;
+    /// Get authentication credentials if available
+    fn get_auth_credentials(&self) -> Option<(String, String)>;
 }

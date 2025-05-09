@@ -343,4 +343,23 @@ impl CouchDbRepository for CouchDbClient {
 
         Ok(result)
     }
+
+    fn get_base_url(&self) -> String {
+        self.base_url.clone()
+    }
+
+    fn get_auth_credentials(&self) -> Option<(String, String)> {
+        // Extract username and password from auth header if it's a Basic auth header
+        if self.auth_header.starts_with("Basic ") {
+            let encoded = self.auth_header.trim_start_matches("Basic ").trim();
+            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) {
+                if let Ok(auth_str) = String::from_utf8(decoded) {
+                    if let Some((username, password)) = auth_str.split_once(':') {
+                        return Some((username.to_string(), password.to_string()));
+                    }
+                }
+            }
+        }
+        None
+    }
 }

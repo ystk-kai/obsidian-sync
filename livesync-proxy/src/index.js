@@ -1,22 +1,24 @@
 const express = require('express');
 const http = require('http');
-const WebSocket = require('ws');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const path = require('path');
 
 // 簡易メトリクス収集用
 const metrics = {
-  wsConnections: 0,
+  httpConnections: 0,
   requestDurations: {}, // パスごとのリクエスト時間を記録
-  startTime: Date.now()
+  startTime: Date.now(),
+  activeRequests: 0
 };
 
 // メトリクスミドルウェア
 const metricsMiddleware = (req, res, next) => {
   const start = Date.now();
+  metrics.activeRequests++; // アクティブリクエスト数をインクリメント
   
   // レスポンス完了時に処理時間を計測
   res.on('finish', () => {
+    metrics.activeRequests--; // アクティブリクエスト数をデクリメント
     const duration = Date.now() - start;
     const path = req.path || '/';
     const method = req.method || 'GET';
@@ -54,9 +56,9 @@ app.use(metricsMiddleware);
 app.get('/metrics', (req, res) => {
   let metricsOutput = '';
   
-  // WebSocket接続数
-  metricsOutput += '# TYPE websocket_connections_count gauge\n';
-  metricsOutput += `websocket_connections_count{service="livesync_proxy"} ${metrics.wsConnections}\n\n`;
+  // HTTP接続数
+  metricsOutput += '# TYPE http_connections_count gauge\n';
+  metricsOutput += `http_connections_count{service="livesync_proxy"} ${metrics.activeRequests}\n\n`;
   
   // HTTPリクエスト時間
   metricsOutput += '# TYPE http_request_duration_seconds histogram\n';
@@ -135,40 +137,8 @@ app.use('/db', createProxyMiddleware({
 // 静的ファイルのホスティング
 app.use(express.static('static'));
 
-// HTTPサーバーの作成
-const server = http.createServer(app);
-
-// WebSocketサーバーの作成
-const wss = new WebSocket.Server({ server });
-
-// WebSocket接続のハンドリング
-wss.on('connection', (ws) => {
-  console.log('クライアント接続を確立');
-  metrics.wsConnections++; // 接続数をインクリメント
-
-  // メッセージの受信ハンドラ
-  ws.on('message', (message) => {
-    console.log('受信メッセージ: %s', message);
-
-    // 必要に応じてCouchDBにリクエストを転送
-    // ここにLiveSyncの処理ロジックを実装
-  });
-
-  // 接続終了ハンドラ
-  ws.on('close', () => {
-    console.log('クライアント接続が閉じられました');
-    metrics.wsConnections--; // 接続数をデクリメント
-  });
-
-  // 初期接続確認メッセージ送信
-  ws.send(JSON.stringify({
-    type: 'connection_established',
-    message: 'LiveSync Proxyに接続されました'
-  }));
-});
-
 // サーバー起動
-server.listen(PORT, () => {
-  console.log(`LiveSync Proxyサーバーが起動しました: http://localhost:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`LiveSync HTTPプロキシサーバーが起動しました: http://localhost:${PORT}`);
   console.log(`CouchDBへの接続先: ${couchdbBaseUrl}`);
 });

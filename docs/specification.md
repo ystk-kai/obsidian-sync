@@ -7,7 +7,7 @@
 * **目的**：Obsidian LiveSync プラグイン＋CouchDB でリアルタイム同期環境を構築
 * **コンテナ管理**：Docker／Docker Compose v2（`compose.yaml`）で完全コンテナ化
 * **主要設定**：`.env` 一元管理（プロジェクト名／Compose ファイル／ポート／認証情報）
-* **プロキシ実装**：Rust言語によるWebSocketプロキシ（livesync-proxy）で高速・安定動作
+* **プロキシ実装**：Rust言語によるHTTPプロキシ（livesync-proxy）で高速・安定動作
 
 ---
 
@@ -24,8 +24,8 @@
 
 ```mermaid
 flowchart LR
-  PC ---|WebSocket| Proxy[LiveSync Proxy]
-  Mobile ---|WebSocket| Proxy
+  PC ---|HTTP| Proxy[LiveSync Proxy]
+  Mobile ---|HTTP| Proxy
   Proxy -->|HTTP| CouchDB
   CouchDB -- Replication --> Replica[CouchDB Replica]
   Monitoring[Metrics & Health] -->|監視| Proxy

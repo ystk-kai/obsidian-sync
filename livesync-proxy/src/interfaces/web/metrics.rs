@@ -1,5 +1,5 @@
 use axum::{Router, extract::State, routing::get};
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, histogram};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::sync::Arc;
 use std::time::Instant;
@@ -41,11 +41,6 @@ impl MetricsState {
         let duration = start.elapsed().as_secs_f64();
         let labels = [("path", path.to_string()), ("method", method.to_string())];
         histogram!("http_request_duration_seconds", &labels).record(duration);
-    }
-
-    // WebSocket接続数を更新
-    pub fn update_websocket_connections(&self, count: usize) {
-        gauge!("websocket_connections_count").set(count as f64);
     }
 
     // ドキュメント同期をカウント

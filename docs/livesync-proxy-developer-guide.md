@@ -70,8 +70,7 @@ livesync-proxy/
 │   │   └── services.rs         # アプリケーションサービスの実装
 │   ├── infrastructure/         # インフラストラクチャ層
 │   │   ├── config.rs           # 設定管理
-│   │   ├── couchdb.rs          # CouchDB クライアント実装
-│   │   └── websocket.rs        # WebSocket ブローカー実装
+│   │   └── couchdb.rs          # CouchDB クライアント実装
 │   └── interfaces/             # インターフェース層
 │       ├── web.rs              # Webモジュールのエクスポート
 │       └── web/                # Web関連のコンポーネント
@@ -83,8 +82,7 @@ livesync-proxy/
 │   └── index.html              # ウェルカムページ
 └── tests/                      # 統合テスト
     ├── couchdb_repository_test.rs    # CouchDBリポジトリのテスト
-    ├── livesync_service_test.rs      # LiveSyncサービスのテスト
-    └── websocket_broker_test.rs      # WebSocketブローカーのテスト
+    └── livesync_service_test.rs      # LiveSyncサービスのテスト
 ```
 
 ## 主要コンポーネント
@@ -98,8 +96,6 @@ livesync-proxy/
 主要なドメインモデルには以下が含まれます：
 
 - `CouchDbDocument` - CouchDBドキュメントを表します
-- `LiveSyncMessage` - WebSocketを介して送受信されるメッセージを表します
-- `MessageType` - メッセージのタイプを表す列挙型（接続、同期、レプリケーションなど）
 - `DomainError` - ドメイン固有のエラーを表します
 
 #### サービスインターフェース (`services.rs`)
@@ -107,7 +103,6 @@ livesync-proxy/
 ドメイン層は、インフラストラクチャ層によって実装される必要のあるインターフェースを定義します：
 
 - `CouchDbRepository` - CouchDBとの対話に必要なメソッドを定義します
-- `MessageBroker` - WebSocketメッセージのルーティングを担当します
 
 ### アプリケーション層
 
@@ -115,7 +110,7 @@ livesync-proxy/
 
 #### サービス (`services.rs`)
 
-- `LiveSyncService` - メインのアプリケーションサービスで、メッセージの処理と各種操作の調整を担当します
+- `LiveSyncService` - メインのアプリケーションサービスで、ドキュメント同期やレプリケーションの処理を担当します
 
 ### インフラストラクチャ層
 
@@ -129,17 +124,14 @@ livesync-proxy/
 
 - `CouchDbClient` - CouchDBリポジトリインターフェースを実装し、RESTful APIを介してCouchDBと通信します
 
-#### WebSocket ブローカー (`websocket.rs`)
-
-- `WebSocketBroker` - MessageBrokerインターフェースを実装し、WebSocketクライアントへのメッセージルーティングを担当します
-
 ### インターフェース層
 
 インターフェース層は、ユーザーおよび外部システムとの通信を担当します。
 
-#### ウェブハンドラー (`web/handlers.rs`)
+#### HTTP プロキシハンドラー (`web/handlers.rs`)
 
-- `ws_handler` - WebSocket接続のハンドリングを担当します
+- `http_proxy_handler` - HTTP接続のプロキシ処理を担当します
+- 注意: ObsidianクライアントはHTTP/HTTPS接続でCouchDBと通信します
 
 #### ヘルスチェック (`web/health.rs`)
 
@@ -176,32 +168,6 @@ async fn new_endpoint_handler() -> impl IntoResponse {
 let app = Router::new()
     .route("/new-endpoint", get(new_endpoint_handler))
     // ...他のルート
-```
-
-### 新しいメッセージタイプの処理
-
-新しいWebSocketメッセージタイプを追加するには：
-
-1. `src/domain/models.rs`の`MessageType`列挙型に新しいバリアントを追加します
-2. `src/application/services.rs`の`LiveSyncService::handle_message`メソッドを更新して新しいメッセージタイプを処理します
-
-例：
-```rust
-// MessageType 列挙型に追加
-pub enum MessageType {
-    Connection,
-    Sync,
-    Replicate,
-    NewMessageType, // 新しいメッセージタイプ
-}
-
-// handle_message メソッドでの処理を追加
-match msg.message_type {
-    MessageType::NewMessageType => {
-        // 新しいメッセージタイプを処理
-    }
-    // ...他のケース
-}
 ```
 
 ### CouchDB機能の拡張
@@ -258,7 +224,7 @@ RUST_LOG=debug cargo test -- --nocapture
 
 アプリケーションのパフォーマンスを最適化するためのヒント：
 
-1. **WebSocketメッセージの処理** - 大量のメッセージを効率的に処理するため、非同期処理とタスク分散を活用します
+1. **HTTP プロキシ効率化** - 効率的なリクエスト転送とレスポンス処理を確保します
 2. **CouchDBバッチ処理** - 複数のオペレーションを単一リクエストにバッチ処理します
 3. **接続プーリング** - HTTP接続の再利用を確保します
 4. **キャッシング** - 頻繁にアクセスされるデータをキャッシュします
@@ -293,7 +259,7 @@ RUST_LOG=debug cargo test -- --nocapture
 開発中によくある問題とその解決方法：
 
 1. **CouchDB接続エラー** - CouchDBのURLとクレデンシャルが正しいか確認します
-2. **WebSocketハンドシェイクの失敗** - ルーティングとネットワーク設定を確認します
+2. **HTTPプロキシエラー** - ルーティングとネットワーク設定を確認します
 3. **メトリクスやヘルスチェックの問題** - 依存関係が適切にインストールされているか確認します
 
 ## 主要依存関係
@@ -320,7 +286,6 @@ RUST_LOG=debug cargo test -- --nocapture
 2. 以下のようなAPI変更に対応
    - `base64` クレートの新しいエンジンAPIに対応
    - `metrics-exporter-prometheus` の新しいバケット設定方法の採用
-   - `futures_util` WebSocketハンドリングの更新
    - `url` パーサーの最新APIに対応
 3. ヘルスチェックを追加して可用性モニタリングの改善
 4. プロジェクト構造を整理（GitHub Workflowsとドキュメントの再編成）

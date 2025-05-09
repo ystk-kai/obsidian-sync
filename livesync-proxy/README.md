@@ -1,12 +1,12 @@
 # Obsidian LiveSync Proxy
 
-LiveSync Proxy は Obsidian LiveSync プラグイン用の WebSocket プロキシで、CouchDB との通信を効率化します。この実装は Rust で開発された高速かつメモリ効率の良いサーバーです。
+LiveSync Proxy は Obsidian LiveSync プラグイン用の HTTP プロキシで、CouchDB との通信を効率化します。この実装は Rust で開発された高速かつメモリ効率の良いサーバーです。
 
 ## 概要
 
 Obsidian LiveSync プラグインは、ノートの同期と複数デバイス間の共有を可能にします。このプロキシは以下の機能を提供します：
 
-- WebSocket 経由の双方向通信
+- HTTP 経由の通信
 - CouchDB データベースとの効率的な接続
 - レプリケーションの最適化
 - ドキュメント変更のリアルタイム同期
@@ -18,11 +18,11 @@ Obsidian LiveSync プラグインは、ノートの同期と複数デバイス�
 - **ドメイン層**: ビジネスロジックとモデルを定義
 - **アプリケーション層**: ユースケースと操作フローを実装
 - **インフラストラクチャ層**: 外部サービス (CouchDB) とのインタラクションを管理
-- **インターフェース層**: WebSocket と HTTP エンドポイントを提供
+- **インターフェース層**: HTTP エンドポイントを提供
 
 ## 機能
 
-- WebSocket を介したリアルタイム同期
+- HTTP を介した通信
 - CouchDB へのセキュアな接続
 - レプリケーション処理の最適化
 - 健全性チェックとメトリクス
@@ -85,9 +85,9 @@ cargo run
 
 ## API エンドポイント
 
-### WebSocket 接続
+### Obsidian LiveSync プラグイン接続URI
 
-- `ws://localhost:3000/db` - LiveSync WebSocket 接続
+- `http://localhost:3000/db` - LiveSync 接続URI (ObsidianプラグインのRemote Database URIに設定)
 
 ### HTTP エンドポイント
 
@@ -102,7 +102,6 @@ cargo run
 
 - `livesync_proxy_http_requests_total` - HTTP リクエスト数
 - `livesync_proxy_http_request_duration_seconds` - リクエスト処理時間
-- `livesync_proxy_websocket_connections_count` - アクティブな WebSocket 接続数
 - `livesync_proxy_document_sync_total` - ドキュメント同期処理数
 - `livesync_proxy_replication_total` - レプリケーション処理数
 
