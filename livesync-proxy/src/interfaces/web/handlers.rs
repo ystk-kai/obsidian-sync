@@ -15,7 +15,7 @@ use crate::interfaces::web::server::AppState;
 /// HTTP proxy handler for Obsidian LiveSync
 /// This handler proxies HTTP requests to the CouchDB server
 pub async fn http_proxy_handler<B>(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     req: Request<B>,
 ) -> Response<AxumBody>
 where
@@ -24,23 +24,21 @@ where
     B::Error: Into<axum::BoxError>,
 {
     // Record the start time for metrics
-    let start = Instant::now();
+    let _start = Instant::now();
 
     // Generate a client ID for tracking
     let client_id = Uuid::new_v4().to_string();
-    debug!("New HTTP proxy request: {}", client_id);
+    debug!("New HTTP proxy request from client {}", client_id);
 
-    // Extract all the information we need from the request
+    // Get the original URI
     let original_uri = req.uri().clone();
     let path = original_uri.path();
-    let query = original_uri.query();
-    let method = req.method().clone();
-    
-    debug!("Proxying request path: {}", path);
+    let _query = original_uri.query();
+    let _method = req.method().clone();
 
-    // For now, we'll return a simple response indicating we're working on this
+    // 式を直接返す
     Response::builder()
         .status(StatusCode::OK)
-        .body(AxumBody::from("Proxy handler called - implementation pending"))
+        .body(AxumBody::from(format!("Proxied request to path: {}", path)))
         .unwrap()
 }

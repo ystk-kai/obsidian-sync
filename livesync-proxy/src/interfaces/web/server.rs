@@ -3,20 +3,20 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    Json, Router,
     extract::State,
     response::IntoResponse,
     routing::{any, get},
+    Json, Router,
 };
 use serde_json::Value;
 use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
 use super::handlers::http_proxy_handler;
-use crate::interfaces::web::setup::setup_uri_handler;
 use crate::application::services::LiveSyncService;
-use crate::interfaces::web::health::{HealthState, create_health_router};
-use crate::interfaces::web::metrics::{MetricsState, create_metrics_router};
+use crate::interfaces::web::health::{create_health_router, HealthState};
+use crate::interfaces::web::metrics::{create_metrics_router, MetricsState};
+use crate::interfaces::web::setup::setup_uri_handler;
 
 /// アプリケーションの状態を管理する構造体
 pub struct AppState {

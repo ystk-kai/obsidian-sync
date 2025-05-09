@@ -1,5 +1,5 @@
-use axum::{Router, extract::State, routing::get};
-use metrics::{counter, histogram};
+use axum::{extract::State, routing::get, Router};
+use metrics::{histogram as record_histogram, increment_counter};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,40 +28,40 @@ impl MetricsState {
 
     // HTTPリクエストをカウント
     pub fn record_request(&self, path: &str, method: &str, status: u16) {
-        let labels = [
-            ("path", path.to_string()),
-            ("method", method.to_string()),
-            ("status", status.to_string()),
-        ];
-        counter!("http_requests_total", &labels).increment(1);
+        // metrics 0.21.1では、ラベル付きメトリクスの直接サポートはありません
+        // メトリクス名に情報を含める形で実装します
+        let metric_name = format!(
+            "http_requests_total_path_{}_method_{}_status_{}",
+            path, method, status
+        );
+        increment_counter!(metric_name);
     }
 
     // レスポンス時間を記録
     pub fn record_request_duration(&self, path: &str, method: &str, start: Instant) {
         let duration = start.elapsed().as_secs_f64();
-        let labels = [("path", path.to_string()), ("method", method.to_string())];
-        histogram!("http_request_duration_seconds", &labels).record(duration);
+        let metric_name = format!(
+            "http_request_duration_seconds_path_{}_method_{}",
+            path, method
+        );
+        record_histogram!(metric_name, duration);
     }
 
     // ドキュメント同期をカウント
     pub fn record_document_sync(&self, db_name: &str, success: bool) {
         let result = if success { "success" } else { "failure" };
-        let labels = [
-            ("database", db_name.to_string()),
-            ("result", result.to_string()),
-        ];
-        counter!("document_sync_total", &labels).increment(1);
+        let metric_name = format!("document_sync_total_database_{}_result_{}", db_name, result);
+        increment_counter!(metric_name);
     }
 
     // レプリケーションをカウント
     pub fn record_replication(&self, source: &str, target: &str, success: bool) {
         let result = if success { "success" } else { "failure" };
-        let labels = [
-            ("source", source.to_string()),
-            ("target", target.to_string()),
-            ("result", result.to_string()),
-        ];
-        counter!("replication_total", &labels).increment(1);
+        let metric_name = format!(
+            "replication_total_source_{}_target_{}_result_{}",
+            source, target, result
+        );
+        increment_counter!(metric_name);
     }
 }
 

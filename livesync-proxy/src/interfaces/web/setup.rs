@@ -1,8 +1,7 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
+    response::Response,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -38,31 +37,33 @@ pub async fn setup_uri_handler(
 
     // CouchDBの認証情報を取得
     let auth_credentials = state.livesync_service.get_couchdb_auth();
-    
+
     let (username, password) = match auth_credentials {
         Some((u, p)) => (u, p),
         None => {
             error!("No authentication credentials available for setup URI");
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(axum::body::Body::from("Authentication credentials not available"))
+                .body(axum::body::Body::from(
+                    "Authentication credentials not available",
+                ))
                 .unwrap();
         }
     };
 
     // CouchDBのURLを取得
     let couchdb_url = state.livesync_service.get_couchdb_url();
-    
+
     // リモートURIとして使用するCouchDBのURL
     let remote_uri = couchdb_url.clone();
-    
+
     // ホストとポートを取得 (デフォルトは現在のサーバーのアドレス)
     let host = params.host.unwrap_or_else(|| "localhost".to_string());
     let port = params.port.unwrap_or(3000);
-    
+
     // Setup URIを作成 - これはObsidianのLiveSyncプラグインが理解できるフォーマット
     let setup_uri = format!("http://{}:{}@{}:{}/db", username, password, host, port);
-    
+
     // 有効なURIかチェック
     if Url::parse(&setup_uri).is_err() {
         error!("Generated setup URI is invalid");
@@ -71,7 +72,7 @@ pub async fn setup_uri_handler(
             .body(axum::body::Body::from("Failed to generate valid setup URI"))
             .unwrap();
     }
-    
+
     // レスポンスを構築
     let response = SetupUriResponse {
         username: username.clone(),
@@ -79,12 +80,14 @@ pub async fn setup_uri_handler(
         remote_uri,
         setup_uri,
     };
-    
+
     info!("Setup URI generated successfully");
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_string(&response).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_string(&response).unwrap(),
+        ))
         .unwrap()
 }
