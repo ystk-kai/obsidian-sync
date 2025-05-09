@@ -71,8 +71,10 @@ pub async fn start_web_server(
     // サーバーの起動
     info!("Starting server on {}", addr);
 
-    // Axum 0.8のserveメソッドを使用
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // WSL環境で確実に接続できるよう0.0.0.0にバインド
+    let listener_addr = SocketAddr::from(([0, 0, 0, 0], addr.port()));
+    let listener = tokio::net::TcpListener::bind(listener_addr).await?;
+    info!("Server listening on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
 
     info!("Server shutdown gracefully");

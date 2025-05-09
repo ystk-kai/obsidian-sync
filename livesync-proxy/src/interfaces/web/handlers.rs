@@ -7,15 +7,15 @@ use axum::{
     http::{header, Request, StatusCode, Uri},
     response::Response,
 };
-use base64::engine::{general_purpose, Engine};
 use futures::Stream;
 use http_body_util::BodyExt;
 use hyper_tls::HttpsConnector;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::interfaces::web::server::AppState;
+use crate::utils::base64_encode;
 
 /// HTTP proxy handler for Obsidian LiveSync
 /// This handler proxies HTTP requests to the CouchDB server
@@ -28,7 +28,7 @@ pub async fn http_proxy_handler(
 
     // Generate a client ID for tracking
     let client_id = Uuid::new_v4().to_string();
-    info!("New HTTP proxy request from client {}", client_id);
+    debug!("New HTTP proxy request from client {}", client_id);
 
     // Get the original URI
     let original_uri = req.uri().clone();
@@ -37,14 +37,14 @@ pub async fn http_proxy_handler(
     let method = req.method().clone();
     let method_str = method.as_str().to_string(); // デバッグログ用に文字列として保存
 
-    info!(
+    debug!(
         "Request details - Method: {}, Path: {}, Query: {:?}",
         method_str, path, query
     );
 
     // CouchDBのステータスをチェック
     let couchdb_status = state.health_state.couchdb_status.read().await.clone();
-    info!(
+    debug!(
         "CouchDB status - Available: {}, Error: {:?}",
         couchdb_status.available, couchdb_status.error_message
     );
@@ -52,7 +52,7 @@ pub async fn http_proxy_handler(
     // CouchDBサービスのURLとユーザー情報を常に取得 (エラー時にも情報を表示するため)
     let couchdb_url = state.livesync_service.get_couchdb_url();
     let couchdb_auth = state.livesync_service.get_couchdb_auth();
-    info!(
+    debug!(
         "CouchDB configuration - URL: {}, Auth available: {}",
         couchdb_url,
         couchdb_auth.is_some()
@@ -97,11 +97,11 @@ pub async fn http_proxy_handler(
     });
 
     // リクエストヘッダーのログ
-    info!("Original request headers: {:?}", req.headers());
+    debug!("Original request headers: {:?}", req.headers());
 
     // ホストヘッダーを更新
     if let Some(host) = req.uri().authority().map(|a| a.as_str().to_string()) {
-        info!("Using authority from URI for host header: {}", host);
+        debug!("Using authority from URI for host header: {}", host);
         if let Ok(host_value) = header::HeaderValue::from_str(&host) {
             req.headers_mut().insert(header::HOST, host_value);
         }
@@ -115,7 +115,7 @@ pub async fn http_proxy_handler(
             .unwrap_or("localhost")
             .to_string(); // 所有権を持つString値に変換
 
-        info!("Extracted host from target URI: {}", host_str);
+        debug!("Extracted host from target URI: {}", host_str);
 
         if let Ok(host_value) = header::HeaderValue::from_str(&host_str) {
             req.headers_mut().insert(header::HOST, host_value);
@@ -124,32 +124,40 @@ pub async fn http_proxy_handler(
 
     // 認証情報があれば追加
     if let Some((username, password)) = couchdb_auth {
-        info!("Adding basic auth header for user: {}", username);
-        let auth_value = format!(
-            "Basic {}",
-            general_purpose::STANDARD.encode(format!("{}:{}", username, password))
-        );
-        if let Ok(auth_header) = header::HeaderValue::from_str(&auth_value) {
-            req.headers_mut().insert(header::AUTHORIZATION, auth_header);
+        if !username.is_empty() && !password.is_empty() {
+            debug!("Adding basic auth header for user: {}", username);
+
+            // 認証文字列を作成
+            let auth_string = format!("{}:{}", username, password);
+            let auth_value = format!("Basic {}", base64_encode(&auth_string));
+
+            if let Ok(auth_header) = header::HeaderValue::from_str(&auth_value) {
+                req.headers_mut().insert(header::AUTHORIZATION, auth_header);
+                debug!("Authorization header added successfully");
+            } else {
+                error!("Failed to create Authorization header");
+            }
+        } else {
+            debug!("Empty username or password provided, skipping authentication");
         }
     } else {
-        info!("No authentication credentials provided");
+        debug!("No authentication credentials provided");
     }
 
-    info!("Modified request headers: {:?}", req.headers());
+    debug!("Modified request headers: {:?}", req.headers());
 
     // HTTPSクライアントを作成
     let https = HttpsConnector::new();
     let client: Client<_, Body> = Client::builder(TokioExecutor::new()).build(https);
-    info!("Created HTTPS client for request");
+    debug!("Created HTTPS client for request");
 
     // リクエスト本文をストリームとして取得しhyperリクエストに変換
     let (parts, body) = req.into_parts();
     let hyper_req = Request::from_parts(parts, body);
-    info!("Prepared request for sending to CouchDB");
+    debug!("Prepared request for sending to CouchDB");
 
     // リクエストを送信
-    info!("Sending request to CouchDB...");
+    debug!("Sending request to CouchDB...");
     match client.request(hyper_req).await {
         Ok(res) => {
             // レスポンスを返す
@@ -162,7 +170,7 @@ pub async fn http_proxy_handler(
 
             // Hyper ResponseをAxum Responseに変換
             let (parts, body) = res.into_parts();
-            info!("Response headers from CouchDB: {:?}", parts.headers);
+            debug!("Response headers from CouchDB: {:?}", parts.headers);
 
             // 応答ヘッダーとステータスコードを設定
             let mut response_builder = Response::builder().status(parts.status);
@@ -172,7 +180,7 @@ pub async fn http_proxy_handler(
                 response_builder = response_builder.header(key.as_str(), value);
             }
 
-            info!("Returning proxied response to client");
+            debug!("Returning proxied response to client");
             // レスポンスボディを変換して返す
             response_builder
                 .body(Body::from_stream(BodyStream {

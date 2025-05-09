@@ -42,23 +42,38 @@ impl CouchDbClient {
         let url = format!("{}/", self.base_url);
         debug!("Pinging CouchDB at {}", url);
 
-        let response = self
-            .client
-            .get(&url)
-            .basic_auth(&self.username, Some(&self.password))
-            .send()
-            .await?;
+        // 認証が必要かどうかを確認
+        let mut req_builder = self.client.get(&url);
 
-        match response.status() {
-            StatusCode::OK => {
-                debug!("CouchDB ping successful");
-                Ok(())
-            }
-            status => {
-                error!("CouchDB ping failed with status: {}", status);
-                Err(anyhow!("CouchDB ping failed with status: {}", status))
-            }
+        if !self.username.is_empty() && !self.password.is_empty() {
+            debug!(
+                "Using credentials - Username: {}, Password: [REDACTED]",
+                self.username
+            );
+            req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
+        } else {
+            debug!(
+                "No credentials provided or empty credentials, connecting without authentication"
+            );
         }
+
+        let response = req_builder.send().await?;
+
+        // ステータスを事前に取得
+        let status = response.status();
+        debug!("CouchDB ping response status: {}", status);
+
+        // レスポンスボディをログに出力（エラー情報を取得するため）
+        if !status.is_success() {
+            if let Ok(body_text) = response.text().await {
+                debug!("CouchDB ping response body: {}", body_text);
+            }
+            error!("CouchDB ping failed with status: {}", status);
+            return Err(anyhow!("CouchDB ping failed with status: {}", status));
+        }
+
+        debug!("CouchDB ping successful");
+        Ok(())
     }
 
     /// データベースが存在するか確認
@@ -131,8 +146,15 @@ impl CouchDbClient {
         // reqwestのリクエストビルダーを構築
         let mut req_builder = self.client.request(method, &url);
 
-        // 認証情報を追加
-        req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
+        // 認証情報を追加（空でない場合のみ）
+        if !self.username.is_empty() && !self.password.is_empty() {
+            debug!("Adding basic auth for user: {}", self.username);
+            req_builder = req_builder.basic_auth(&self.username, Some(&self.password));
+        } else {
+            debug!(
+                "No credentials provided or empty credentials, connecting without authentication"
+            );
+        }
 
         // ヘッダーを追加（Hostヘッダーは除外し、認証関連ヘッダーも上書き）
         for (key, value) in headers.iter() {
@@ -154,6 +176,28 @@ impl CouchDbClient {
         // レスポンスステータスとヘッダーを取得
         let status = response.status();
         let headers = response.headers().clone();
+        debug!("CouchDB responded with status: {}", status);
+
+        // エラーの場合はボディの詳細をログに出力
+        if !status.is_success() {
+            let error_body = response.text().await?;
+            error!("CouchDB error response: {}", error_body);
+
+            // Axumのレスポンスを構築してエラーを返す
+            let mut axum_response_builder = AxumResponse::builder().status(status);
+
+            // Content-Typeヘッダーを設定
+            axum_response_builder = axum_response_builder.header(
+                HeaderName::from_static("content-type"),
+                HeaderValue::from_static("application/json"),
+            );
+
+            return axum_response_builder
+                .body(AxumBody::from(error_body))
+                .map_err(|e| anyhow!("Failed to build error response: {}", e));
+        }
+
+        // 成功レスポンスの場合、ボディをバイト列として取得
         let body_bytes = response.bytes().await?;
 
         // Axumのレスポンスを構築
