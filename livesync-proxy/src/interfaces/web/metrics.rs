@@ -70,6 +70,12 @@ impl MetricsState {
     }
 }
 
+impl Default for MetricsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // メトリクスのハンドラー
 async fn metrics_handler(State(state): State<Arc<MetricsState>>) -> String {
     state.recorder_handle.render()

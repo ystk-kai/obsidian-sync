@@ -33,6 +33,12 @@ pub struct ServiceStatus {
     pub couchdb: CouchDbStatus,
 }
 
+impl Default for HealthState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HealthState {
     pub fn new() -> Self {
         Self {

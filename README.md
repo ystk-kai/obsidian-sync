@@ -76,7 +76,7 @@ flowchart TD
 
 1. リポジトリをクローン：
    ```bash
-   git clone <リポジトリURL>
+   git clone https://github.com/ystk-kai/obsidian-sync.git
    cd obsidian-sync
    ```
 
