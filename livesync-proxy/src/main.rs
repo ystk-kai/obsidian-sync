@@ -34,6 +34,10 @@ async fn main() -> Result<()> {
         std::env::var("COUCHDB_PASSWORD").unwrap_or_else(|_| "password".to_string());
 
     debug!("Using CouchDB at URL: {}", couchdb_url);
+    debug!(
+        "Using CouchDB credentials - Username: {}, Password: [REDACTED]",
+        couchdb_username
+    );
 
     let couchdb_client = CouchDbClient::new(&couchdb_url, &couchdb_username, &couchdb_password);
 

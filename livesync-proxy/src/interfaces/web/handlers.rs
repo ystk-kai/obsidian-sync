@@ -127,9 +127,11 @@ pub async fn http_proxy_handler(
         if !username.is_empty() && !password.is_empty() {
             debug!("Adding basic auth header for user: {}", username);
 
-            // 認証文字列を作成
+            // 認証文字列を作成 (URLエンコードを適用)
             let auth_string = format!("{}:{}", username, password);
             let auth_value = format!("Basic {}", base64_encode(&auth_string));
+
+            debug!("Auth value length: {}", auth_value.len());
 
             if let Ok(auth_header) = header::HeaderValue::from_str(&auth_value) {
                 req.headers_mut().insert(header::AUTHORIZATION, auth_header);

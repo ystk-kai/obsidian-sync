@@ -1,8 +1,16 @@
 use base64::{engine::general_purpose, Engine as _};
+use tracing::debug;
 
 /// Base64エンコードを行う関数
 pub fn base64_encode(input: &str) -> String {
-    general_purpose::STANDARD.encode(input)
+    // デバッグ情報を出力
+    debug!("Base64 encoding input string length: {}", input.len());
+
+    // STANDARDエンコーダを使用 (パディングあり)
+    let encoded = general_purpose::STANDARD.encode(input.as_bytes());
+
+    debug!("Base64 encoded result length: {}", encoded.len());
+    encoded
 }
 
 /// Base64デコードを行う関数

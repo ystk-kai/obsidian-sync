@@ -76,6 +76,13 @@ impl AppConfig {
             couchdb_url
         };
 
+        // Ensure the URL ends with a slash
+        let url_with_slash = if clean_url.ends_with('/') {
+            clean_url
+        } else {
+            format!("{}/", clean_url)
+        };
+
         AppConfig {
             server: ServerConfig {
                 host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
@@ -85,7 +92,7 @@ impl AppConfig {
                     .unwrap_or(3000),
             },
             couchdb: CouchDbConfig {
-                url: clean_url,
+                url: url_with_slash,
                 username,
                 password,
             },
