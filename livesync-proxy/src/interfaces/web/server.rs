@@ -26,25 +26,29 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(service: Arc<LiveSyncService>) -> Self {
+    pub fn new(service: Arc<LiveSyncService>, health_state: Arc<HealthState>) -> Self {
         Self {
             livesync_service: service,
-            health_state: Arc::new(HealthState::new()),
+            health_state,
             metrics_state: Arc::new(MetricsState::new()),
         }
     }
 }
 
 /// Webサーバーを起動する関数
-pub async fn start_web_server(addr: String, service: Arc<LiveSyncService>) -> Result<()> {
+pub async fn start_web_server(
+    addr: String,
+    service: Arc<LiveSyncService>,
+    health_state: Arc<HealthState>,
+) -> Result<()> {
     // サーバーアドレスをパース
     let addr: SocketAddr = addr.parse()?;
 
     // アプリケーション状態の作成
-    let app_state = Arc::new(AppState::new(service));
+    let app_state = Arc::new(AppState::new(service, health_state.clone()));
 
     // ルーターの設定
-    let health_router = create_health_router(app_state.health_state.clone());
+    let health_router = create_health_router(health_state);
     let metrics_router = create_metrics_router(app_state.metrics_state.clone());
 
     let app = Router::new()
