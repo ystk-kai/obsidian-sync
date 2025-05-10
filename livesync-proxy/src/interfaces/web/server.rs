@@ -75,7 +75,6 @@ pub async fn start_web_server(
         .merge(metrics_router)
         // /db のすべてのパスを同じハンドラで処理
         .route("/db", any(http_proxy_handler))
-        .route("/db/:path", any(http_proxy_handler))
         .route("/db/{path}", any(http_proxy_handler))
         // 静的ファイルを提供する
         .nest_service("/static", static_service.clone())
