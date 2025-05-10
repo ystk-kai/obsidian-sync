@@ -55,6 +55,9 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
     - uses: actions/checkout@v4
     
@@ -70,12 +73,13 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+        logout: false
     
     - name: Extract metadata for Docker
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository_owner }}/livesync-proxy
+        images: ghcr.io/${{ github.repository }}/livesync-proxy
         tags: |
           type=semver,pattern={{version}}
           type=ref,event=branch
