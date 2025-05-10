@@ -180,6 +180,7 @@ impl CouchDbClient {
             Client::builder()
                 .timeout(std::time::Duration::from_secs(90)) // 90秒のタイムアウト（heartbeatより長く）
                 .connection_verbose(true)
+                .user_agent("Obsidian-LiveSync-Proxy/1.0")
                 .build()
                 .expect("Failed to create HTTP client for longpoll")
         } else {
@@ -198,7 +199,14 @@ impl CouchDbClient {
             // フラグメント応答を許可
             req_builder = req_builder.header("Accept", "application/json");
 
-            info!("Added special headers for _changes request");
+            // より詳細なログ出力
+            info!("Added special headers for _changes request: {}", url);
+            if is_longpoll {
+                info!(
+                    "This is a longpoll request with path: {}, query: {:?}",
+                    path, query
+                );
+            }
         }
 
         // 認証情報を追加（空でない場合のみ）
