@@ -1,17 +1,18 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Response, StatusCode, Uri},
+    http::{header, HeaderName, Method, Response, StatusCode, Uri},
     response::IntoResponse,
     routing::{any, get},
     Router,
 };
-use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
+use tower_http::{cors::{CorsLayer, AllowOrigin}, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
 use super::handlers::{debug_handler, http_proxy_handler, status_handler};
@@ -54,6 +55,65 @@ pub async fn start_web_server(
     // ServeDir サービスを使用
     let static_service = ServeDir::new(&app_state.static_dir);
 
+    // 許可するオリジンの明示的なリスト
+    let allowed_origins = AllowOrigin::list([
+        "app://obsidian.md".parse().unwrap(),
+        "capacitor://localhost".parse().unwrap(),
+        "http://localhost".parse().unwrap(),
+    ]);
+
+    // 許可するメソッドの明示的なリスト
+    let allowed_methods = vec![
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::HEAD,
+        Method::OPTIONS,
+    ];
+
+    // 許可するヘッダーの明示的なリスト - CORSの制約に対応するため
+    let allowed_headers = vec![
+        HeaderName::from_static("accept"),
+        HeaderName::from_static("authorization"),
+        HeaderName::from_static("content-type"),
+        HeaderName::from_static("origin"),
+        HeaderName::from_static("referer"),
+        HeaderName::from_static("x-csrf-token"),
+        HeaderName::from_static("if-match"),
+        HeaderName::from_static("destination"),
+        HeaderName::from_static("x-requested-with"),
+        HeaderName::from_static("x-pouchdb-read-quorum"),
+        HeaderName::from_static("x-pouchdb-write-quorum"),
+        HeaderName::from_static("content-length"),
+        HeaderName::from_static("cache-control"),
+        HeaderName::from_static("pragma"),
+    ];
+
+    // 公開するレスポンスヘッダーのリスト
+    let expose_headers = vec![
+        HeaderName::from_static("content-type"),
+        HeaderName::from_static("cache-control"),
+        HeaderName::from_static("accept-ranges"),
+        HeaderName::from_static("etag"),
+        HeaderName::from_static("server"),
+        HeaderName::from_static("x-couch-request-id"),
+        HeaderName::from_static("x-couch-update-newrev"),
+        HeaderName::from_static("x-couch-update-newseq"),
+    ];
+
+    // カスタムCORS設定 - credential=trueの場合はワイルドカードを使用不可
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origins)
+        .allow_methods(allowed_methods)
+        .allow_headers(allowed_headers)
+        .expose_headers(expose_headers)
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600));
+
+    info!("Serving static files from {} and index.html from {}/index.html", 
+          app_state.static_dir, app_state.static_dir);
+          
     // すべてのルートを直接定義したルーター
     let app = Router::new()
         // APIエンドポイント
@@ -82,7 +142,7 @@ pub async fn start_web_server(
         .fallback(fallback_handler)
         // ミドルウェア
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(app_state);
 
     // サーバーの起動
