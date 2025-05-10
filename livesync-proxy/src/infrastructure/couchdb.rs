@@ -237,6 +237,13 @@ impl CouchDbClient {
 
         Ok(axum_response)
     }
+
+    /// デフォルトデータベース名を取得
+    pub fn get_dbname(&self) -> String {
+        // 必要に応じてフィールド追加後、ここで返す
+        // 仮実装: "obsidian" を返す
+        "obsidian".to_string()
+    }
 }
 
 // CouchDbRepositoryトレイトの実装

@@ -6,9 +6,11 @@ services:
     restart: unless-stopped
     volumes:
       - couchdb_data:/opt/couchdb/data
+      - ./couchdb/local.d:/opt/couchdb/etc/local.d
     environment:
       COUCHDB_USER: ${COUCHDB_USER}
       COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+      COUCHDB_DBNAME: ${COUCHDB_DBNAME:-obsidian}
     ports:
       - "${HOST_COUCHDB_PORT}:5984"
     healthcheck:
@@ -27,6 +29,9 @@ services:
       COUCHDB_URL: http://couchdb:5984/
       COUCHDB_USER: ${COUCHDB_USER}
       COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+      COUCHDB_DBNAME: ${COUCHDB_DBNAME:-obsidian}
+      PORT: 3000
+      RUST_LOG: debug
     ports:
       - "${HOST_PROXY_PORT}:3000"
     volumes:

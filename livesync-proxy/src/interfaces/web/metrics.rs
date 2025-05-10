@@ -2,7 +2,7 @@ use axum::{extract::State, routing::get, Router};
 use metrics::{counter, histogram};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // メトリクスの状態
 pub struct MetricsState {
@@ -46,6 +46,23 @@ impl MetricsState {
         histogram!(metric_name).record(duration);
     }
 
+    // HTTPプロキシリクエストを記録（互換性のために残す）
+    pub fn record_http_proxy_request(
+        &self,
+        method: String,
+        path: String,
+        status: u16,
+        elapsed: Duration,
+    ) {
+        self.record_request(&path, &method, status);
+        let duration = elapsed.as_secs_f64();
+        let metric_name = format!(
+            "http_request_duration_seconds_path_{}_method_{}",
+            path, method
+        );
+        histogram!(metric_name).record(duration);
+    }
+
     // ドキュメント同期をカウント
     pub fn record_document_sync(&self, db_name: &str, success: bool) {
         let result = if success { "success" } else { "failure" };
@@ -71,7 +88,7 @@ impl Default for MetricsState {
 }
 
 // メトリクスのハンドラー
-async fn metrics_handler(State(state): State<Arc<MetricsState>>) -> String {
+pub async fn metrics_handler(State(state): State<Arc<MetricsState>>) -> String {
     state.recorder_handle.render()
 }
 

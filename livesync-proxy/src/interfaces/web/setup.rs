@@ -4,6 +4,7 @@ use axum::{
     response::Response,
 };
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use url::Url;
@@ -57,9 +58,15 @@ pub async fn setup_uri_handler(
     // リモートURIとして使用するCouchDBのURL
     let remote_uri = couchdb_url.clone();
 
-    // ホストとポートを取得 (デフォルトは現在のサーバーのアドレス)
+    // 環境変数からデフォルトの外部ポートを取得（デフォルトは3000, .envのHOST_PROXY_PORTから）
+    let default_external_port = env::var("HOST_PROXY_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+
+    // ホストとポートを取得
     let host = params.host.unwrap_or_else(|| "localhost".to_string());
-    let port = params.port.unwrap_or(3000);
+    let port = params.port.unwrap_or(default_external_port);
 
     // Setup URIを作成 - これはObsidianのLiveSyncプラグインが理解できるフォーマット
     let setup_uri = format!("http://{}:{}@{}:{}/db", username, password, host, port);
@@ -81,7 +88,10 @@ pub async fn setup_uri_handler(
         setup_uri,
     };
 
-    info!("Setup URI generated successfully");
+    info!(
+        "Setup URI generated successfully for host={}, port={}",
+        host, port
+    );
 
     Response::builder()
         .status(StatusCode::OK)

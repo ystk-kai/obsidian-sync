@@ -1,34 +1,31 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
     body::Body,
     extract::State,
-    http::{Response, StatusCode},
+    http::{header, Response, StatusCode, Uri},
     response::IntoResponse,
     routing::{any, get},
-    Json, Router,
+    Router,
 };
-use serde_json::Value;
-use tower_http::{
-    cors::CorsLayer,
-    services::{ServeDir, ServeFile},
-    trace::TraceLayer,
-};
+use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
-use super::handlers::http_proxy_handler;
+use super::handlers::{debug_handler, http_proxy_handler, status_handler};
+use super::setup::setup_uri_handler;
 use crate::application::services::LiveSyncService;
-use crate::interfaces::web::health::{create_health_router, HealthState};
-use crate::interfaces::web::metrics::{create_metrics_router, MetricsState};
-use crate::interfaces::web::setup::setup_uri_handler;
+use crate::interfaces::web::health::HealthState;
+use crate::interfaces::web::metrics::MetricsState;
 
 /// アプリケーションの状態を管理する構造体
 pub struct AppState {
     pub livesync_service: Arc<LiveSyncService>,
     pub health_state: Arc<HealthState>,
     pub metrics_state: Arc<MetricsState>,
+    pub static_dir: String,
 }
 
 impl AppState {
@@ -37,6 +34,7 @@ impl AppState {
             livesync_service: service,
             health_state,
             metrics_state: Arc::new(MetricsState::new()),
+            static_dir: "/app/static".to_string(),
         }
     }
 }
@@ -50,38 +48,39 @@ pub async fn start_web_server(
     // アプリケーション状態の作成
     let app_state = Arc::new(AppState::new(service, health_state.clone()));
 
-    // ルーターの設定
-    let health_router = create_health_router(health_state);
-    let metrics_router = create_metrics_router(app_state.metrics_state.clone());
+    info!("Serving static files from {}", app_state.static_dir);
 
-    // 静的ファイルサービスを設定（ベースディレクトリを指定）
-    let static_dir = "/app/static";
-    let index_path = format!("{}/index.html", static_dir);
+    // 静的ファイルハンドリング
+    // ServeDir サービスを使用
+    let static_service = ServeDir::new(&app_state.static_dir);
 
-    info!(
-        "Serving static files from {} and index.html from {}",
-        static_dir, index_path
-    );
-
-    let static_service = ServeDir::new(static_dir);
-
+    // すべてのルートを直接定義したルーター
     let app = Router::new()
         // APIエンドポイント
         .route("/api/status", get(status_handler))
         .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
-        // ヘルスチェックとメトリクスのルーターを追加
-        .merge(health_router)
-        .merge(metrics_router)
-        // /db のすべてのパスを同じハンドラで処理
-        .route("/db", any(http_proxy_handler))
-        .route("/db/{path}", any(http_proxy_handler))
-        // 静的ファイルを提供する
-        .nest_service("/static", static_service.clone())
-        // ルートパスはindex.htmlを提供
-        .route_service("/", ServeFile::new(index_path))
-        // その他のパスは404を返す
+        // ヘルスチェック
+        .route(
+            "/health",
+            get(super::health::health_handler).with_state(health_state),
+        )
+        // メトリクス
+        .route(
+            "/metrics",
+            get(super::metrics::metrics_handler).with_state(app_state.metrics_state.clone()),
+        )
+        // 静的ファイル
+        .nest_service("/static", static_service)
+        // CouchDBプロキシエンドポイント - すべてのパターンを明示的に定義
+        .route("/db", any(db_proxy_handler))
+        .route("/db/", any(db_proxy_handler))
+        .route("/db/{*path}", any(db_proxy_handler))
+        // ルートパス
+        .route("/", get(index_handler))
+        // フォールバック
         .fallback(fallback_handler)
+        // ミドルウェア
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(app_state);
@@ -97,40 +96,62 @@ pub async fn start_web_server(
     Ok(())
 }
 
-/// サーバーのステータス情報を返すハンドラー
-async fn status_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
-    // CouchDBの状態を取得
-    let couchdb_status = state.health_state.couchdb_status.read().await;
+/// DBプロキシハンドラーラッパー - パスの確実なマッピングを行う
+async fn db_proxy_handler(
+    state: State<Arc<AppState>>,
+    req: axum::http::Request<Body>,
+) -> impl IntoResponse {
+    // デバッグ用にリクエスト情報を出力
+    let _uri = req.uri().to_string();
+    let method = req.method().as_str();
+    let path = req.uri().path();
 
-    Json(serde_json::json!({
-        "status": if couchdb_status.available { "ok" } else { "degraded" },
-        "version": env!("CARGO_PKG_VERSION"),
-        "services": {
-            "couchdb": {
-                "available": couchdb_status.available,
-                "last_checked": couchdb_status.last_checked.duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                "error": couchdb_status.error_message
-            }
-        }
-    }))
+    info!("DB Proxy handling: {} {}", method, path);
+
+    // http_proxy_handlerを呼び出す
+    http_proxy_handler(state, req).await
 }
 
-/// デバッグ用の単純なハンドラー
-async fn debug_handler() -> impl IntoResponse {
-    info!("Debug handler called");
-    Json(serde_json::json!({
-        "status": "ok",
-        "message": "Debug endpoint is working"
-    }))
+/// インデックスページを提供するハンドラー
+async fn index_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let index_path = format!("{}/index.html", state.static_dir);
+    serve_file(index_path).await
+}
+
+/// ファイルを提供する共通関数
+async fn serve_file(path: String) -> impl IntoResponse {
+    match tokio::fs::read(&path).await {
+        Ok(content) => {
+            // MIME型を推測する
+            let content_type = match Path::new(&path).extension().and_then(|ext| ext.to_str()) {
+                Some("html") => "text/html",
+                Some("css") => "text/css",
+                Some("js") => "application/javascript",
+                Some("json") => "application/json",
+                Some("png") => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("svg") => "image/svg+xml",
+                _ => "application/octet-stream",
+            };
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(content))
+                .unwrap()
+        }
+        Err(_) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!("File not found: {}", path)))
+            .unwrap(),
+    }
 }
 
 /// フォールバックハンドラー
-async fn fallback_handler() -> impl IntoResponse {
-    info!("404 Not Found");
+async fn fallback_handler(uri: Uri) -> impl IntoResponse {
+    info!("404 Not Found: {}", uri);
     Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .body(Body::from("404 - Not Found"))
+        .body(Body::from(format!("404 - Not Found: {}", uri)))
         .unwrap()
 }

@@ -20,6 +20,7 @@ pub struct CouchDbConfig {
     pub url: String,
     pub username: String,
     pub password: String,
+    pub dbname: String,
 }
 
 impl AppConfig {
@@ -83,6 +84,8 @@ impl AppConfig {
             format!("{}/", clean_url)
         };
 
+        let dbname = env::var("COUCHDB_DBNAME").unwrap_or_else(|_| "obsidian".to_string());
+
         AppConfig {
             server: ServerConfig {
                 host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
@@ -95,6 +98,7 @@ impl AppConfig {
                 url: url_with_slash,
                 username,
                 password,
+                dbname,
             },
         }
     }

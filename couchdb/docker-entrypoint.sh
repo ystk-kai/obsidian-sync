@@ -17,6 +17,12 @@ initialize_system_databases() {
     echo "システムデータベースの作成: _global_changes"
     curl -s -X PUT http://${COUCHDB_USER}:${COUCHDB_PASSWORD}@127.0.0.1:5984/_global_changes > /dev/null
     
+    # COUCHDB_DBNAME 環境変数で指定されたデータベースを作成
+    # 環境変数が設定されていない場合はデフォルト値 "obsidian" を使用
+    DB_NAME=${COUCHDB_DBNAME:-obsidian}
+    echo "アプリケーションデータベースの作成: ${DB_NAME}"
+    curl -s -X PUT http://${COUCHDB_USER}:${COUCHDB_PASSWORD}@127.0.0.1:5984/${DB_NAME} > /dev/null
+    
     echo "システムデータベースの初期化が完了しました"
 }
 

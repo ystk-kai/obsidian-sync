@@ -7,6 +7,7 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use livesync_proxy::application::services::LiveSyncService;
+use livesync_proxy::domain::services::CouchDbRepository;
 use livesync_proxy::infrastructure::config::AppConfig;
 use livesync_proxy::infrastructure::couchdb::CouchDbClient;
 use livesync_proxy::interfaces::web::health::HealthState;
@@ -34,6 +35,14 @@ async fn main() -> Result<()> {
         &config.couchdb.username,
         &config.couchdb.password,
     );
+
+    // データベース名を取得
+    let dbname = &config.couchdb.dbname;
+    info!("Ensuring CouchDB database exists: {}", dbname);
+    match couchdb_client.ensure_database(dbname).await {
+        Ok(_) => info!("Database '{}' is ready.", dbname),
+        Err(e) => info!("Failed to ensure database '{}': {}", dbname, e),
+    }
 
     // Test connection but continue even if it fails
     info!("Testing connection to CouchDB at {}", config.couchdb.url);
