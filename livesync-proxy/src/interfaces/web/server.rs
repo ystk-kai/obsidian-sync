@@ -169,12 +169,46 @@ async fn db_proxy_handler(
 ) -> impl IntoResponse {
     // デバッグ用にリクエスト情報を出力
     let _uri = req.uri().to_string();
-    let method = req.method().as_str();
-    let path = req.uri().path();
+    let method = req.method().to_string();
+    let path = req.uri().path().to_string();
+    let query = req.uri().query();
 
     info!("DB Proxy handling: {} {}", method, path);
 
-    // CouchDBへリクエストを転送
+    // _changesエンドポイントのlongpoll検出
+    let is_longpoll =
+        path.contains("/_changes") && query.is_some_and(|q| q.contains("feed=longpoll"));
+
+    // bulk_docsリクエストの検出（大きなデータ転送が予想される）
+    let is_bulk_docs = path.contains("/_bulk_docs");
+
+    if is_longpoll {
+        info!(
+            "Detected _changes longpoll request: {} {} with query: {:?}",
+            method, path, query
+        );
+    }
+
+    if is_bulk_docs {
+        info!(
+            "Detected _bulk_docs request: {} {} - expecting larger payload",
+            method, path
+        );
+    }
+
+    // リクエストタイプに基づいて適切なバッファサイズを選択
+    let buffer_size = match (is_longpoll, is_bulk_docs) {
+        (true, _) => 1024 * 1024,      // longpoll: 1MB
+        (_, true) => 20 * 1024 * 1024, // bulk_docs: 20MB
+        _ => 5 * 1024 * 1024,          // その他: 5MB
+    };
+
+    info!(
+        "Using buffer size of {} bytes for {} {}",
+        buffer_size, method, path
+    );
+
+    // リクエストをハンドラに渡す
     let orig_response = http_proxy_handler(state, req).await;
 
     // 詳細なロギングのためにレスポンスを展開
@@ -185,8 +219,18 @@ async fn db_proxy_handler(
     info!("DB Proxy got initial response with status: {}", status);
     debug!("Response headers before processing: {:?}", headers);
 
-    // レスポンスボディを完全にメモリにバッファリング
-    match to_bytes(body, 10 * 1024 * 1024).await {
+    // longpollリクエストの場合は特別な処理（AbortErrorが発生しやすい）
+    if is_longpoll && status == StatusCode::NO_CONTENT {
+        info!("Returning early for longpoll request with 204 status");
+        return Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"results":[],"last_seq":"0"}"#))
+            .unwrap()
+            .into_response();
+    }
+
+    match to_bytes(body, buffer_size).await {
         // 10MB制限
         Ok(bytes) => {
             info!("Successfully buffered response body: {} bytes", bytes.len());

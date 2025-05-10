@@ -66,7 +66,8 @@ pub async fn http_proxy_handler(
                 .record_request_duration(&uri_path, method.as_str(), start);
             state
                 .metrics_state
-                .record_request(&uri_path, method.as_str(), 500);
+                .record_request(&uri_path, method.as_str(), 500)
+                .await;
 
             return response;
         }
@@ -102,7 +103,8 @@ pub async fn http_proxy_handler(
                 .record_request_duration(&uri_path, method.as_str(), start);
             state
                 .metrics_state
-                .record_request(&uri_path, method.as_str(), 502);
+                .record_request(&uri_path, method.as_str(), 502)
+                .await;
 
             return response;
         }
@@ -115,9 +117,18 @@ pub async fn http_proxy_handler(
     state
         .metrics_state
         .record_request_duration(&uri_path, method.as_str(), start);
-    state
-        .metrics_state
-        .record_request(&uri_path, method.as_str(), status_code);
+
+    // 非同期でリクエスト記録処理
+    let metrics_state = state.metrics_state.clone();
+    let uri_path_clone = uri_path.clone();
+    let method_str = method.as_str().to_string();
+    let status_code_clone = status_code;
+
+    tokio::spawn(async move {
+        metrics_state
+            .record_request(&uri_path_clone, &method_str, status_code_clone)
+            .await;
+    });
 
     response
 }

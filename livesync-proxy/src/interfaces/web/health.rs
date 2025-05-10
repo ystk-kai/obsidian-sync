@@ -1,19 +1,23 @@
 use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::application::services::LiveSyncService;
 use crate::infrastructure::couchdb::CouchDbClient;
 
 // ヘルスチェックの状態
 pub struct HealthState {
+    pub livesync_service: Arc<LiveSyncService>,
     pub start_time: SystemTime,
     pub couchdb_status: RwLock<CouchDbStatus>,
-    livesync_service: Arc<LiveSyncService>,
-    check_interval: Duration,
+    pub check_interval: Duration,
+    // バックオフ戦略のための状態追加
+    consecutive_failures: AtomicU32,
+    max_check_interval: Duration,
 }
 
 // CouchDBの状態
@@ -34,22 +38,25 @@ pub struct HealthResponse {
 }
 
 // サービスの状態
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct ServiceStatus {
     pub couchdb: CouchDbStatus,
 }
 
 impl HealthState {
-    pub fn new(livesync_service: Arc<LiveSyncService>, check_interval: Duration) -> Self {
+    pub fn new(service: Arc<LiveSyncService>, check_interval: Duration) -> Self {
         Self {
+            livesync_service: service,
             start_time: SystemTime::now(),
             couchdb_status: RwLock::new(CouchDbStatus {
                 available: false,
                 last_checked: SystemTime::now(),
                 error_message: None,
             }),
-            livesync_service,
             check_interval,
+            // 初期値の設定
+            consecutive_failures: AtomicU32::new(0),
+            max_check_interval: Duration::from_secs(300), // 最大5分まで伸ばす
         }
     }
 
@@ -77,10 +84,12 @@ impl HealthState {
                 "Starting background health check with interval {:?}",
                 health_state.check_interval
             );
-            let mut interval = tokio::time::interval(health_state.check_interval);
+
+            // 初期間隔を設定
+            let mut current_interval = health_state.check_interval;
 
             loop {
-                interval.tick().await;
+                tokio::time::sleep(current_interval).await;
                 debug!("Performing CouchDB health check");
 
                 let couchdb_url = health_state.livesync_service.get_couchdb_url();
@@ -88,12 +97,52 @@ impl HealthState {
 
                 if let Some((username, password)) = couchdb_auth {
                     let couchdb_client = CouchDbClient::new(&couchdb_url, &username, &password);
-                    match couchdb_client.ping().await {
-                        Ok(_) => {
+
+                    // タイムアウト付きPing
+                    let ping_result = tokio::time::timeout(
+                        Duration::from_secs(5), // 5秒タイムアウト
+                        couchdb_client.ping(),
+                    )
+                    .await;
+
+                    // エラーケースを適切に処理
+                    match ping_result {
+                        // 正常応答
+                        Ok(Ok(_)) => {
+                            // 成功したので連続失敗カウンターをリセット
+                            health_state.consecutive_failures.store(0, Ordering::SeqCst);
+                            // 通常の間隔に戻す
+                            current_interval = health_state.check_interval;
                             health_state.update_couchdb_status(true, None).await;
                         }
-                        Err(e) => {
-                            let error_msg = format!("CouchDB connection error: {}", e);
+                        // エラー（CouchDBエラーまたはタイムアウト）
+                        _ => {
+                            let error_msg = match &ping_result {
+                                Ok(Err(e)) => format!("CouchDB connection error: {}", e),
+                                Err(_) => "CouchDB connection timed out".to_string(),
+                                _ => "Unknown error".to_string(),
+                            };
+
+                            // 連続失敗カウンターを増加
+                            let failures = health_state
+                                .consecutive_failures
+                                .fetch_add(1, Ordering::SeqCst)
+                                + 1;
+
+                            // バックオフ戦略: 2^n秒（最大max_check_intervalまで）
+                            let backoff_secs = std::cmp::min(
+                                2u64.pow(failures),
+                                health_state.max_check_interval.as_secs(),
+                            );
+
+                            warn!(
+                                "CouchDB health check failed {} times in a row. Next check in {} seconds. Error: {}", 
+                                failures, backoff_secs, error_msg
+                            );
+
+                            // 次回のチェック間隔を計算
+                            current_interval = Duration::from_secs(backoff_secs);
+
                             health_state
                                 .update_couchdb_status(false, Some(error_msg))
                                 .await;

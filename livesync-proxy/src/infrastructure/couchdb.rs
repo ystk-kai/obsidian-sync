@@ -9,7 +9,7 @@ use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 use std::str::FromStr;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::domain::models::{CouchDbDocument, DomainError};
 use crate::domain::services::CouchDbRepository;
@@ -173,12 +173,18 @@ impl CouchDbClient {
         // 通常の_changesリクエストの検出（longpollでない場合も含む）
         let is_changes_request = path.contains("/_changes");
 
+        // bulk_docsリクエストの検出（大きなデータ転送が予想される）
+        let _is_bulk_docs = path.contains("/_bulk_docs");
+
         // クライアントを選択（通常用とlongpoll用で別々のタイムアウト設定）
         let client = if is_longpoll {
             // longpoll用に長いタイムアウトを持つクライアントを作成
-            info!("Detected longpoll request, using extended timeout");
+            info!(
+                "Detected longpoll request, using extended timeout: {} {}",
+                method, url
+            );
             Client::builder()
-                .timeout(std::time::Duration::from_secs(90)) // 90秒のタイムアウト（heartbeatより長く）
+                .timeout(std::time::Duration::from_secs(120)) // 120秒のタイムアウト（CouchDBの設定より長く）
                 .connection_verbose(true)
                 .user_agent("Obsidian-LiveSync-Proxy/1.0")
                 .build()
@@ -239,28 +245,77 @@ impl CouchDbClient {
             Err(e) => {
                 // 接続エラーの詳細をログに出力
                 error!("Connection error with CouchDB: {}", e);
-                if e.is_timeout() {
-                    error!("Request timed out");
-                } else if e.is_connect() {
-                    error!("Connection failed: {}", e);
-                } else if e.is_body() {
-                    error!("Body error: {}", e);
-                } else if e.is_request() {
-                    error!("Request error: {}", e);
-                }
 
-                // 空レスポンスとしてエラーを返さずに、エラーメッセージを含むレスポンスを返す
-                return AxumResponse::builder()
-                    .status(StatusCode::BAD_GATEWAY)
-                    .header(
-                        HeaderName::from_static("content-type"),
-                        HeaderValue::from_static("application/json"),
-                    )
-                    .body(AxumBody::from(format!(
-                        r#"{{"error":"Connection to CouchDB failed: {}"}}"#,
-                        e
-                    )))
-                    .map_err(|e| anyhow!("Failed to build error response: {}", e));
+                // 構造化されたエラーハンドリング
+                match e {
+                    // longpollリクエストのAbortエラー - クライアント側で中断された場合
+                    err if is_longpoll
+                        && (err.to_string().contains("aborted")
+                            || err.to_string().contains("canceled")) =>
+                    {
+                        info!(
+                            "Longpoll request was aborted by client, this is often normal: {} {}",
+                            method, url
+                        );
+                        return AxumResponse::builder()
+                            .status(StatusCode::NO_CONTENT)
+                            .header(
+                                HeaderName::from_static("content-type"),
+                                HeaderValue::from_static("application/json"),
+                            )
+                            .body(AxumBody::from(r#"{"ok":true,"reason":"request_aborted"}"#))
+                            .map_err(|e| anyhow!("Failed to build abort response: {}", e));
+                    }
+                    // タイムアウトエラー - 特に長時間リクエストで発生
+                    err if err.is_timeout() => {
+                        warn!(
+                            "Request timed out: {} {} after {} seconds",
+                            method,
+                            url,
+                            if is_longpoll { 120 } else { 30 }
+                        );
+                        return AxumResponse::builder()
+                            .status(StatusCode::GATEWAY_TIMEOUT)
+                            .header(
+                                HeaderName::from_static("content-type"),
+                                HeaderValue::from_static("application/json"),
+                            )
+                            .body(AxumBody::from(format!(
+                                r#"{{"error":"Request timed out after {} seconds","reason":"timeout"}}"#,
+                                if is_longpoll { 120 } else { 30 }
+                            )))
+                            .map_err(|e| anyhow!("Failed to build timeout response: {}", e));
+                    }
+                    // 接続エラー - サーバーに到達できない
+                    err if err.is_connect() => {
+                        error!("Connection failed: {} {}: {}", method, url, err);
+                        return AxumResponse::builder()
+                            .status(StatusCode::BAD_GATEWAY)
+                            .header(
+                                HeaderName::from_static("content-type"),
+                                HeaderValue::from_static("application/json"),
+                            )
+                            .body(AxumBody::from(
+                                r#"{"error":"Failed to connect to CouchDB","reason":"connection_failed"}"#.to_string()
+                            ))
+                            .map_err(|e| anyhow!("Failed to build connection error response: {}", e));
+                    }
+                    // その他のエラー
+                    _ => {
+                        error!("Unexpected error: {} for {} {}", e, method, url);
+                        return AxumResponse::builder()
+                            .status(StatusCode::BAD_GATEWAY)
+                            .header(
+                                HeaderName::from_static("content-type"),
+                                HeaderValue::from_static("application/json"),
+                            )
+                            .body(AxumBody::from(format!(
+                                r#"{{"error":"Connection to CouchDB failed: {}","reason":"unexpected_error"}}"#,
+                                e
+                            )))
+                            .map_err(|e| anyhow!("Failed to build error response: {}", e));
+                    }
+                }
             }
         };
 
