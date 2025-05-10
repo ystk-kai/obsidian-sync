@@ -255,7 +255,7 @@ pub async fn http_proxy_handler(
                         "{{\"error\":\"bad_gateway\",\"reason\":\"Failed to forward request to CouchDB: {}\"}}", 
                         e
                     )))
-                    .unwrap()
+        .unwrap()
             }
         }
     }

@@ -55,7 +55,15 @@ pub async fn start_web_server(
     let metrics_router = create_metrics_router(app_state.metrics_state.clone());
 
     // 静的ファイルサービスを設定（ベースディレクトリを指定）
-    let static_service = ServeDir::new("/app/static");
+    let static_dir = "/app/static";
+    let index_path = format!("{}/index.html", static_dir);
+
+    info!(
+        "Serving static files from {} and index.html from {}",
+        static_dir, index_path
+    );
+
+    let static_service = ServeDir::new(static_dir);
 
     let app = Router::new()
         // APIエンドポイント
@@ -67,11 +75,12 @@ pub async fn start_web_server(
         .merge(metrics_router)
         // /db のすべてのパスを同じハンドラで処理
         .route("/db", any(http_proxy_handler))
-        .route("/db/*path", any(http_proxy_handler))
+        .route("/db/:path", any(http_proxy_handler))
+        .route("/db/{path}", any(http_proxy_handler))
         // 静的ファイルを提供する
         .nest_service("/static", static_service.clone())
         // ルートパスはindex.htmlを提供
-        .route_service("/", ServeFile::new("/app/static/index.html"))
+        .route_service("/", ServeFile::new(index_path))
         // その他のパスは404を返す
         .fallback(fallback_handler)
         .layer(TraceLayer::new_for_http())

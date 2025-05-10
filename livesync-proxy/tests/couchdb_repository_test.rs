@@ -20,6 +20,8 @@ mock! {
             -> Result<Vec<CouchDbDocument>, DomainError>;
         async fn ensure_database(&self, db_name: &str) -> Result<(), DomainError>;
         async fn replicate(&self, source: &str, target: &str, options: Value) -> Result<Value, DomainError>;
+        fn get_base_url(&self) -> String;
+        fn get_auth_credentials(&self) -> Option<(String, String)>;
     }
 }
 
@@ -174,6 +176,14 @@ impl CouchDbRepository for InMemoryCouchDb {
             "docs_written": docs_count,
             "docs_failed": 0
         }))
+    }
+
+    fn get_base_url(&self) -> String {
+        "http://localhost:5984".to_string()
+    }
+
+    fn get_auth_credentials(&self) -> Option<(String, String)> {
+        Some(("admin".to_string(), "password".to_string()))
     }
 }
 
