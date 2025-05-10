@@ -26,6 +26,8 @@ impl CouchDbClient {
     /// 新しいCouchDBクライアントを作成
     pub fn new(base_url: &str, username: &str, password: &str) -> Self {
         let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30秒のタイムアウトを設定
+            .connection_verbose(true)
             .build()
             .expect("Failed to create HTTP client");
 
@@ -156,13 +158,16 @@ impl CouchDbClient {
             url.push_str(&q);
         }
 
-        debug!("Forwarding request to CouchDB: {} {}", method, url);
+        // より詳細なリクエスト情報をログに出力
+        info!("Forwarding request to CouchDB: {} {}", method, url);
+        debug!("Request headers: {:?}", headers);
+        debug!("Request body size: {} bytes", body.len());
 
         // HTTPメソッドを解析
         let method = Method::from_str(method).unwrap_or(Method::GET);
 
         // reqwestのリクエストビルダーを構築
-        let mut req_builder = self.client.request(method, &url);
+        let mut req_builder = self.client.request(method.clone(), &url);
 
         // 認証情報を追加（空でない場合のみ）
         if !self.username.is_empty() && !self.password.is_empty() {
@@ -189,34 +194,41 @@ impl CouchDbClient {
         }
 
         // リクエストを送信
-        let response = req_builder.send().await?;
+        let response = match req_builder.send().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                // 接続エラーの詳細をログに出力
+                error!("Connection error with CouchDB: {}", e);
+                if e.is_timeout() {
+                    error!("Request timed out");
+                } else if e.is_connect() {
+                    error!("Connection failed: {}", e);
+                } else if e.is_body() {
+                    error!("Body error: {}", e);
+                } else if e.is_request() {
+                    error!("Request error: {}", e);
+                }
+
+                // 空レスポンスとしてエラーを返さずに、エラーメッセージを含むレスポンスを返す
+                return AxumResponse::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .header(
+                        HeaderName::from_static("content-type"),
+                        HeaderValue::from_static("application/json"),
+                    )
+                    .body(AxumBody::from(format!(
+                        r#"{{"error":"Connection to CouchDB failed: {}"}}"#,
+                        e
+                    )))
+                    .map_err(|e| anyhow!("Failed to build error response: {}", e));
+            }
+        };
 
         // レスポンスステータスとヘッダーを取得
         let status = response.status();
         let headers = response.headers().clone();
-        debug!("CouchDB responded with status: {}", status);
-
-        // エラーの場合はボディの詳細をログに出力
-        if !status.is_success() {
-            let error_body = response.text().await?;
-            error!("CouchDB error response: {}", error_body);
-
-            // Axumのレスポンスを構築してエラーを返す
-            let mut axum_response_builder = AxumResponse::builder().status(status);
-
-            // Content-Typeヘッダーを設定
-            axum_response_builder = axum_response_builder.header(
-                HeaderName::from_static("content-type"),
-                HeaderValue::from_static("application/json"),
-            );
-
-            return axum_response_builder
-                .body(AxumBody::from(error_body))
-                .map_err(|e| anyhow!("Failed to build error response: {}", e));
-        }
-
-        // 成功レスポンスの場合、ボディをバイト列として取得
-        let body_bytes = response.bytes().await?;
+        info!("CouchDB responded with status: {}", status);
+        debug!("Response headers: {:?}", headers);
 
         // Axumのレスポンスを構築
         let mut axum_response_builder = AxumResponse::builder().status(status);
@@ -230,7 +242,32 @@ impl CouchDbClient {
             }
         }
 
+        // ストリーミングレスポンスでなく、完全なボディを取得してからレスポンスを返す
+        // 特にchunkedエンコーディングの場合に問題が発生することがあるため
+        let body_bytes = match response.bytes().await {
+            Ok(bytes) => {
+                debug!("Successfully read response body: {} bytes", bytes.len());
+                bytes
+            }
+            Err(e) => {
+                error!("Failed to read response body: {}", e);
+                // エラーの場合はエラーメッセージを含むレスポンスを返す
+                return AxumResponse::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .header(
+                        HeaderName::from_static("content-type"),
+                        HeaderValue::from_static("application/json"),
+                    )
+                    .body(AxumBody::from(format!(
+                        r#"{{"error":"Failed to read response body: {}"}}"#,
+                        e
+                    )))
+                    .map_err(|e| anyhow!("Failed to build error response: {}", e));
+            }
+        };
+
         // レスポンスを構築して返す
+        debug!("Building final response with {} bytes", body_bytes.len());
         let axum_response = axum_response_builder
             .body(AxumBody::from(body_bytes))
             .map_err(|e| anyhow!("Failed to build response: {}", e))?;

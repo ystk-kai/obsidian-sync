@@ -5,15 +5,19 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     extract::State,
-    http::{header, HeaderName, Method, Response, StatusCode, Uri},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Method, Response, StatusCode, Uri},
     response::IntoResponse,
     routing::{any, get},
     Router,
 };
-use tower_http::{cors::{CorsLayer, AllowOrigin}, services::ServeDir, trace::TraceLayer};
-use tracing::info;
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    services::ServeDir,
+    trace::TraceLayer,
+};
+use tracing::{debug, error, info};
 
 use super::handlers::{debug_handler, http_proxy_handler, status_handler};
 use super::setup::setup_uri_handler;
@@ -111,9 +115,11 @@ pub async fn start_web_server(
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
-    info!("Serving static files from {} and index.html from {}/index.html", 
-          app_state.static_dir, app_state.static_dir);
-          
+    info!(
+        "Serving static files from {} and index.html from {}/index.html",
+        app_state.static_dir, app_state.static_dir
+    );
+
     // すべてのルートを直接定義したルーター
     let app = Router::new()
         // APIエンドポイント
@@ -168,8 +174,83 @@ async fn db_proxy_handler(
 
     info!("DB Proxy handling: {} {}", method, path);
 
-    // http_proxy_handlerを呼び出す
-    http_proxy_handler(state, req).await
+    // CouchDBへリクエストを転送
+    let orig_response = http_proxy_handler(state, req).await;
+
+    // 詳細なロギングのためにレスポンスを展開
+    let (parts, body) = orig_response.into_response().into_parts();
+    let status = parts.status;
+    let headers = parts.headers;
+
+    info!("DB Proxy got initial response with status: {}", status);
+    debug!("Response headers before processing: {:?}", headers);
+
+    // レスポンスボディを完全にメモリにバッファリング
+    match to_bytes(body, 10 * 1024 * 1024).await {
+        // 10MB制限
+        Ok(bytes) => {
+            info!("Successfully buffered response body: {} bytes", bytes.len());
+            if bytes.len() < 1000 {
+                // 小さいレスポンスはデバッグのために表示
+                debug!("Response body content: {}", String::from_utf8_lossy(&bytes));
+            }
+
+            // マニュアルでレスポンスを構築 - HTTP/1.1互換の方法で
+            let mut response_headers = HeaderMap::new();
+
+            // 必要なヘッダーを転送（transfer-encodingを除く）
+            for (key, value) in headers.iter() {
+                if key.as_str().to_lowercase() != "transfer-encoding" {
+                    response_headers.insert(key.clone(), value.clone());
+                }
+            }
+
+            // content-lengthを設定して、chunkedエンコーディングを確実に防ぐ
+            response_headers.insert(
+                header::CONTENT_LENGTH,
+                HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
+            );
+
+            // content-typeヘッダーが確実に設定されるようにする
+            if !response_headers.contains_key(header::CONTENT_TYPE) {
+                response_headers.insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+            }
+
+            info!("Built final response headers: {:?}", response_headers);
+
+            // 新しいレスポンスを構築
+            let mut http_response = Response::builder().status(status);
+
+            // ヘッダーを設定
+            for (name, value) in response_headers.iter() {
+                http_response = http_response.header(name, value);
+            }
+
+            match http_response.body(Body::from(bytes)) {
+                Ok(response) => {
+                    info!("Successfully built final response");
+                    response
+                }
+                Err(e) => {
+                    error!("Failed to build response: {}", e);
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::from("Failed to build response"))
+                        .unwrap()
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to buffer response body: {}", e);
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to process response: {}", e)))
+                .unwrap()
+        }
+    }
 }
 
 /// インデックスページを提供するハンドラー
