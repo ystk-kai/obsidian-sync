@@ -1,4 +1,9 @@
 use async_trait::async_trait;
+use axum::{
+    body::Body,
+    http::{HeaderMap, Response, StatusCode},
+};
+use bytes::Bytes;
 use livesync_proxy::domain::models::{CouchDbDocument, DomainError};
 use livesync_proxy::domain::services::CouchDbRepository;
 use mockall::mock;
@@ -22,6 +27,14 @@ mock! {
         async fn replicate(&self, source: &str, target: &str, options: Value) -> Result<Value, DomainError>;
         fn get_base_url(&self) -> String;
         fn get_auth_credentials(&self) -> Option<(String, String)>;
+        async fn forward_request(
+            &self,
+            method: &str,
+            path: &str,
+            query: Option<String>,
+            headers: HeaderMap,
+            body: Bytes,
+        ) -> Result<Response<Body>, DomainError>;
     }
 }
 
@@ -184,6 +197,34 @@ impl CouchDbRepository for InMemoryCouchDb {
 
     fn get_auth_credentials(&self) -> Option<(String, String)> {
         Some(("admin".to_string(), "password".to_string()))
+    }
+
+    async fn forward_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<String>,
+        _headers: HeaderMap,
+        _body: Bytes,
+    ) -> Result<Response<Body>, DomainError> {
+        // クエリ値をログに出力
+        let query_str = query.unwrap_or_default();
+
+        // テスト用の簡易実装 - 常に成功レスポンスを返す
+        let response_body = serde_json::json!({
+            "ok": true,
+            "method": method,
+            "path": path,
+            "query": query_str
+        });
+
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/json")
+            .body(Body::from(response_body.to_string()))
+            .map_err(|e| DomainError::InvalidMessage(format!("Failed to build response: {}", e)))?;
+
+        Ok(response)
     }
 }
 

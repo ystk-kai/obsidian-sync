@@ -145,7 +145,7 @@ impl CouchDbClient {
         &self,
         method: &str,
         path: &str,
-        query: Option<&str>,
+        query: Option<String>,
         headers: HeaderMap,
         body: Bytes,
     ) -> Result<Response<AxumBody>> {
@@ -153,7 +153,7 @@ impl CouchDbClient {
         let mut url = format!("{}{}", self.base_url, path);
         if let Some(q) = query {
             url.push('?');
-            url.push_str(q);
+            url.push_str(&q);
         }
 
         debug!("Forwarding request to CouchDB: {} {}", method, url);
@@ -509,7 +509,7 @@ impl CouchDbRepository for CouchDbClient {
         &self,
         method: &str,
         path: &str,
-        query: Option<&str>,
+        query: Option<String>,
         headers: HeaderMap,
         body: Bytes,
     ) -> Result<Response<AxumBody>, DomainError> {

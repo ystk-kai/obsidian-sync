@@ -66,7 +66,7 @@ impl LiveSyncService {
         &self,
         method: &str,
         path: &str,
-        query: Option<&str>,
+        query: Option<String>,
         headers: HeaderMap,
         body: Bytes,
     ) -> Result<Response<Body>, DomainError> {

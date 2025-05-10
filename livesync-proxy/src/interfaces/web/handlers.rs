@@ -78,7 +78,7 @@ pub async fn http_proxy_handler(
         .forward_request(
             method.as_str(),
             &couchdb_path,
-            query.as_deref(),
+            query.clone(),
             headers,
             body_bytes,
         )
