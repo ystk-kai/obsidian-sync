@@ -153,9 +153,9 @@ impl CouchDbClient {
     ) -> Result<Response<AxumBody>> {
         // URLを構築
         let mut url = format!("{}{}", self.base_url, path);
-        if let Some(q) = query {
+        if let Some(ref q) = query {
             url.push('?');
-            url.push_str(&q);
+            url.push_str(q);
         }
 
         // より詳細なリクエスト情報をログに出力
@@ -166,8 +166,28 @@ impl CouchDbClient {
         // HTTPメソッドを解析
         let method = Method::from_str(method).unwrap_or(Method::GET);
 
+        // longpollリクエストの検出 - _changesエンドポイントでfeed=longpollパラメータを含む場合
+        let is_longpoll = path.contains("/_changes")
+            && query
+                .as_ref()
+                .map_or(false, |q| q.contains("feed=longpoll"));
+
+        // クライアントを選択（通常用とlongpoll用で別々のタイムアウト設定）
+        let client = if is_longpoll {
+            // longpoll用に長いタイムアウトを持つクライアントを作成
+            info!("Detected longpoll request, using extended timeout");
+            Client::builder()
+                .timeout(std::time::Duration::from_secs(90)) // 90秒のタイムアウト（heartbeatより長く）
+                .connection_verbose(true)
+                .build()
+                .expect("Failed to create HTTP client for longpoll")
+        } else {
+            // 通常のクライアントを使用
+            self.client.clone()
+        };
+
         // reqwestのリクエストビルダーを構築
-        let mut req_builder = self.client.request(method.clone(), &url);
+        let mut req_builder = client.request(method.clone(), &url);
 
         // 認証情報を追加（空でない場合のみ）
         if !self.username.is_empty() && !self.password.is_empty() {
