@@ -1,4 +1,7 @@
 use async_trait::async_trait;
+use axum::body::Body;
+use axum::http::{HeaderMap, Response};
+use bytes::Bytes;
 use serde_json::Value;
 
 use crate::domain::models::{CouchDbDocument, DomainError};
@@ -53,4 +56,14 @@ pub trait CouchDbRepository {
 
     /// Get authentication credentials if available
     fn get_auth_credentials(&self) -> Option<(String, String)>;
+
+    /// HTTP リクエストをCouchDBに転送する
+    async fn forward_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<Response<Body>, DomainError>;
 }

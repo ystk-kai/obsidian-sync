@@ -141,7 +141,7 @@ impl CouchDbClient {
     }
 
     /// HTTPリクエストをCouchDBに転送する
-    pub async fn forward_request(
+    pub async fn http_forward_request(
         &self,
         method: &str,
         path: &str,
@@ -502,5 +502,26 @@ impl CouchDbRepository for CouchDbClient {
     /// 認証情報を取得
     fn get_auth_credentials(&self) -> Option<(String, String)> {
         Some((self.username.clone(), self.password.clone()))
+    }
+
+    /// HTTPリクエストをCouchDBに転送する
+    async fn forward_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<Response<AxumBody>, DomainError> {
+        match self
+            .http_forward_request(method, path, query, headers, body)
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(e) => Err(DomainError::CouchDbError(format!(
+                "Failed to forward request: {}",
+                e
+            ))),
+        }
     }
 }

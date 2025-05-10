@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     extract::State,
     http::{header, Request, StatusCode},
     response::{IntoResponse, Response},
@@ -27,12 +27,9 @@ pub async fn http_proxy_handler(
     // リクエスト情報を抽出
     let method = req.method().clone();
     let uri_path = req.uri().path().to_string();
-    let query = req.uri().query();
+    let query = req.uri().query().map(String::from);
 
     info!("CouchDB proxy request: {} {}", method, uri_path);
-
-    // CouchDBのURLを取得
-    let couchdb_url = state.livesync_service.get_couchdb_url();
 
     // /dbプレフィックスを除去
     let stripped_path = uri_path.trim_start_matches("/db").trim_start_matches("/");
@@ -44,68 +41,75 @@ pub async fn http_proxy_handler(
         format!("/{}", stripped_path)
     };
 
-    // ターゲットURIを構築
-    let target_uri = if let Some(q) = query {
-        format!(
-            "{}{}?{}",
-            couchdb_url.trim_end_matches('/'),
-            couchdb_path,
-            q
+    // リクエストのヘッダーとボディを抽出
+    let (parts, body) = req.into_parts();
+    let headers = parts.headers;
+
+    // ボディをバイト列に変換
+    let body_bytes = match to_bytes(body, 1024 * 1024 * 10).await {
+        // 10MB制限
+        Ok(bytes) => bytes,
+        Err(e) => {
+            debug!("Failed to read request body: {}", e);
+            let response = Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"Failed to read request body: {}"}}"#,
+                    e
+                )))
+                .unwrap();
+
+            // メトリクスを記録
+            state
+                .metrics_state
+                .record_request_duration(&uri_path, method.as_str(), start);
+            state
+                .metrics_state
+                .record_request(&uri_path, method.as_str(), 500);
+
+            return response;
+        }
+    };
+
+    // リクエストをCouchDBに転送
+    let response = match state
+        .livesync_service
+        .forward_request(
+            method.as_str(),
+            &couchdb_path,
+            query.as_deref(),
+            headers,
+            body_bytes,
         )
-    } else {
-        format!("{}{}", couchdb_url.trim_end_matches('/'), couchdb_path)
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!("Failed to forward request to CouchDB: {}", e);
+            let response = Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"error":"Failed to forward request to CouchDB: {}"}}"#,
+                    e
+                )))
+                .unwrap();
+
+            // メトリクスを記録
+            state
+                .metrics_state
+                .record_request_duration(&uri_path, method.as_str(), start);
+            state
+                .metrics_state
+                .record_request(&uri_path, method.as_str(), 502);
+
+            return response;
+        }
     };
 
-    debug!("Forwarding to CouchDB: {} {}", method, target_uri);
-
-    // 単純に文字列でレスポンスを返す - モック応答
-    let mock_response = match &couchdb_path[..] {
-        "/" => {
-            // ルートパスの場合はCouchDBの基本情報を返す
-            info!("Returning mock response for CouchDB root");
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"couchdb":"Welcome","version":"3.2.1"}"#))
-                .unwrap()
-        }
-        "/_session" => {
-            // セッション情報
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    r#"{"ok":true,"userCtx":{"name":null,"roles":["_admin"]}}"#,
-                ))
-                .unwrap()
-        }
-        "/_all_dbs" => {
-            // 全データベースリスト
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from("[]"))
-                .unwrap()
-        }
-        "/_up" => {
-            // ヘルスチェック
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"status":"ok"}"#))
-                .unwrap()
-        }
-        _ => {
-            // その他のパスに対するデフォルト応答
-            // 本来はここでCouchDBにリクエストを転送する実装となる
-            info!("Returning mock response for path: {}", couchdb_path);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"ok":true}"#))
-                .unwrap()
-        }
-    };
+    // レスポンスのステータスコードを取得
+    let status_code = response.status().as_u16();
 
     // メトリクスを記録
     state
@@ -113,9 +117,9 @@ pub async fn http_proxy_handler(
         .record_request_duration(&uri_path, method.as_str(), start);
     state
         .metrics_state
-        .record_request(&uri_path, method.as_str(), 200);
+        .record_request(&uri_path, method.as_str(), status_code);
 
-    mock_response
+    response
 }
 
 /// サーバーのステータス情報を返すハンドラー

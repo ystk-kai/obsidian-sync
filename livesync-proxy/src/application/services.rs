@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use axum::body::Body;
+use axum::http::{HeaderMap, Response};
+use bytes::Bytes;
 use serde_json::Value;
 
 use crate::domain::{
@@ -56,5 +59,22 @@ impl LiveSyncService {
     /// Get the CouchDB repository reference
     pub fn get_couchdb_repository(&self) -> &Arc<dyn CouchDbRepository + Send + Sync> {
         &self.couchdb_repo
+    }
+
+    /// HTTP リクエストをCouchDBに転送する
+    pub async fn forward_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<Response<Body>, DomainError> {
+        // CouchDBリポジトリの参照を取得
+        let repo = self.couchdb_repo.as_ref();
+
+        // リクエストを転送
+        repo.forward_request(method, path, query, headers, body)
+            .await
     }
 }
