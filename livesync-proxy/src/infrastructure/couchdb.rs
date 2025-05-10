@@ -168,9 +168,10 @@ impl CouchDbClient {
 
         // longpollリクエストの検出 - _changesエンドポイントでfeed=longpollパラメータを含む場合
         let is_longpoll = path.contains("/_changes")
-            && query
-                .as_ref()
-                .map_or(false, |q| q.contains("feed=longpoll"));
+            && query.as_ref().is_some_and(|q| q.contains("feed=longpoll"));
+
+        // 通常の_changesリクエストの検出（longpollでない場合も含む）
+        let is_changes_request = path.contains("/_changes");
 
         // クライアントを選択（通常用とlongpoll用で別々のタイムアウト設定）
         let client = if is_longpoll {
@@ -188,6 +189,17 @@ impl CouchDbClient {
 
         // reqwestのリクエストビルダーを構築
         let mut req_builder = client.request(method.clone(), &url);
+
+        // Abortエラーを防ぐために必要なヘッダーを追加（_changesリクエスト用）
+        if is_changes_request {
+            // Connection: keep-aliveを明示的に設定
+            req_builder = req_builder.header("Connection", "keep-alive");
+
+            // フラグメント応答を許可
+            req_builder = req_builder.header("Accept", "application/json");
+
+            info!("Added special headers for _changes request");
+        }
 
         // 認証情報を追加（空でない場合のみ）
         if !self.username.is_empty() && !self.password.is_empty() {
