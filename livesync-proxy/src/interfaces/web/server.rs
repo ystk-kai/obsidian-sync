@@ -20,7 +20,6 @@ use tower_http::{
 use tracing::{debug, error, info};
 
 use super::handlers::{debug_handler, http_proxy_handler, status_handler};
-use super::setup::setup_uri_handler;
 use crate::application::services::LiveSyncService;
 use crate::interfaces::web::health::HealthState;
 use crate::interfaces::web::metrics::MetricsState;
@@ -124,7 +123,6 @@ pub async fn start_web_server(
     let app = Router::new()
         // APIエンドポイント
         .route("/api/status", get(status_handler))
-        .route("/api/setup", get(setup_uri_handler))
         .route("/debug", get(debug_handler))
         // ヘルスチェック
         .route(
