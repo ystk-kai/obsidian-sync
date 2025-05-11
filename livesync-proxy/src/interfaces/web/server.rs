@@ -196,9 +196,9 @@ async fn db_proxy_handler(
 
     // リクエストタイプに基づいて適切なバッファサイズを選択
     let buffer_size = match (is_longpoll, is_bulk_docs) {
-        (true, _) => 1024 * 1024,      // longpoll: 1MB
-        (_, true) => 20 * 1024 * 1024, // bulk_docs: 20MB
-        _ => 5 * 1024 * 1024,          // その他: 5MB
+        (true, _) => 2 * 1024 * 1024,  // longpoll: 2MB (増加)
+        (_, true) => 30 * 1024 * 1024, // bulk_docs: 30MB (増加)
+        _ => 10 * 1024 * 1024,         // 標準: 10MB (増加)
     };
 
     info!(

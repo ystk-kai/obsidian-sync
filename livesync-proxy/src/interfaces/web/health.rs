@@ -2,7 +2,7 @@ use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
@@ -18,6 +18,9 @@ pub struct HealthState {
     // バックオフ戦略のための状態追加
     consecutive_failures: AtomicU32,
     max_check_interval: Duration,
+    status: RwLock<HealthStatus>,
+    last_couchdb_check: RwLock<Option<Instant>>,
+    couchdb_errors: RwLock<u32>,
 }
 
 // CouchDBの状態
@@ -43,6 +46,13 @@ pub struct ServiceStatus {
     pub couchdb: CouchDbStatus,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+}
+
 impl HealthState {
     pub fn new(service: Arc<LiveSyncService>, check_interval: Duration) -> Self {
         Self {
@@ -57,6 +67,9 @@ impl HealthState {
             // 初期値の設定
             consecutive_failures: AtomicU32::new(0),
             max_check_interval: Duration::from_secs(300), // 最大5分まで伸ばす
+            status: RwLock::new(HealthStatus::Healthy),
+            last_couchdb_check: RwLock::new(None),
+            couchdb_errors: RwLock::new(0),
         }
     }
 
@@ -114,6 +127,7 @@ impl HealthState {
                             // 通常の間隔に戻す
                             current_interval = health_state.check_interval;
                             health_state.update_couchdb_status(true, None).await;
+                            health_state.record_couchdb_success().await;
                         }
                         // エラー（CouchDBエラーまたはタイムアウト）
                         _ => {
@@ -146,6 +160,7 @@ impl HealthState {
                             health_state
                                 .update_couchdb_status(false, Some(error_msg))
                                 .await;
+                            health_state.record_couchdb_error().await;
                         }
                     }
                 } else {
@@ -153,9 +168,61 @@ impl HealthState {
                     health_state
                         .update_couchdb_status(false, Some(error_msg))
                         .await;
+                    health_state.record_couchdb_error().await;
                 }
             }
         });
+    }
+
+    /// ヘルスチェック状態を設定
+    pub async fn set_status(&self, status: HealthStatus) {
+        let mut current = self.status.write().await;
+        *current = status;
+    }
+
+    /// CouchDBエラーを記録
+    pub async fn record_couchdb_error(&self) {
+        let mut errors = self.couchdb_errors.write().await;
+        *errors += 1;
+
+        // エラーカウントが3以上ならば状態を下げる
+        if *errors >= 3 {
+            self.set_status(HealthStatus::Degraded).await;
+        }
+
+        // エラーカウントが10以上ならばUnhealthyに設定
+        if *errors >= 10 {
+            self.set_status(HealthStatus::Unhealthy).await;
+        }
+    }
+
+    /// CouchDBチェックの成功を記録
+    pub async fn record_couchdb_success(&self) {
+        let mut last_check = self.last_couchdb_check.write().await;
+        *last_check = Some(Instant::now());
+
+        // エラーカウントをリセット
+        let mut errors = self.couchdb_errors.write().await;
+        *errors = 0;
+
+        // 状態を健全に戻す
+        self.set_status(HealthStatus::Healthy).await;
+    }
+
+    /// 現在の状態を取得
+    pub async fn get_status(&self) -> HealthStatus {
+        *self.status.read().await
+    }
+
+    /// 最後のCouchDBチェックからの経過時間を取得（秒）
+    pub async fn time_since_last_couchdb_check(&self) -> Option<u64> {
+        let last_check = self.last_couchdb_check.read().await;
+        last_check.map(|instant| instant.elapsed().as_secs())
+    }
+
+    /// CouchDBエラー数を取得
+    pub async fn get_couchdb_errors(&self) -> u32 {
+        *self.couchdb_errors.read().await
     }
 }
 

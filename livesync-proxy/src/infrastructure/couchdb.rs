@@ -26,8 +26,9 @@ impl CouchDbClient {
     /// 新しいCouchDBクライアントを作成
     pub fn new(base_url: &str, username: &str, password: &str) -> Self {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30)) // 30秒のタイムアウトを設定
+            .timeout(std::time::Duration::from_secs(60))
             .connection_verbose(true)
+            .user_agent("Obsidian-LiveSync-Proxy/1.0")
             .build()
             .expect("Failed to create HTTP client");
 
@@ -187,8 +188,22 @@ impl CouchDbClient {
                 .timeout(std::time::Duration::from_secs(120)) // 120秒のタイムアウト（CouchDBの設定より長く）
                 .connection_verbose(true)
                 .user_agent("Obsidian-LiveSync-Proxy/1.0")
+                .tcp_keepalive(Some(std::time::Duration::from_secs(30))) // TCP keepaliveを有効化
+                .tcp_nodelay(true) // TCPノーディレイを有効化（レイテンシ削減）
+                .pool_idle_timeout(std::time::Duration::from_secs(120)) // 接続プールのアイドルタイムアウトを延長
+                .pool_max_idle_per_host(10) // ホストごとの最大アイドル接続数を増加
                 .build()
                 .expect("Failed to create HTTP client for longpoll")
+        } else if is_changes_request {
+            // 通常の_changesリクエスト用のクライアント（longpollではない）
+            info!("Detected regular _changes request: {} {}", method, url);
+            Client::builder()
+                .timeout(std::time::Duration::from_secs(90)) // 90秒のタイムアウト
+                .connection_verbose(true)
+                .user_agent("Obsidian-LiveSync-Proxy/1.0")
+                .tcp_nodelay(true) // TCPノーディレイを有効化
+                .build()
+                .expect("Failed to create HTTP client for changes request")
         } else {
             // 通常のクライアントを使用
             self.client.clone()
